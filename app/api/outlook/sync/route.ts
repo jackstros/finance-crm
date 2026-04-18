@@ -27,9 +27,74 @@ const RECRUITING_KEYWORDS = [
   'new hire',
 ]
 
+// Keywords that indicate a high-confidence recruiting event worth auto-creating a firm for
+const AUTO_CREATE_KEYWORDS = [
+  'interview',
+  'superday',
+  'final round',
+  'first round',
+  'phone screen',
+  'on-site',
+  'onsite',
+  'hirevue',
+  'hireview',
+  'offer',
+]
+
+// Job platforms / ATS senders — don't infer firm name from these domains
+const ATS_DOMAINS = new Set([
+  'greenhouse.io',
+  'workday.com',
+  'myworkdayjobs.com',
+  'lever.co',
+  'smartrecruiters.com',
+  'taleo.net',
+  'icims.com',
+  'brassring.com',
+  'jobvite.com',
+  'jazz.co',
+  'indeed.com',
+  'linkedin.com',
+  'ziprecruiter.com',
+  'handshake.com',
+  'welcometothejungle.com',
+])
+
 function isRecruitingEmail(subject: string, bodyPreview: string): boolean {
   const text = (subject + ' ' + bodyPreview).toLowerCase()
   return RECRUITING_KEYWORDS.some((kw) => text.includes(kw))
+}
+
+// Returns 'offer', 'interview', or null based on which high-signal keywords are present
+function inferStatus(subject: string, bodyPreview: string): 'offer' | 'interview' | null {
+  const text = (subject + ' ' + bodyPreview).toLowerCase()
+  if (text.includes('offer')) return 'offer'
+  if (AUTO_CREATE_KEYWORDS.some((kw) => text.includes(kw))) return 'interview'
+  return null
+}
+
+// Derive a firm name from the sender. Returns null if no clean name can be found.
+// Priority: sender display name → sender domain (skips known ATS domains)
+function inferFirmName(senderEmail: string, senderName: string): string | null {
+  if (senderName) {
+    const cleaned = senderName
+      // Strip trailing generic recruiting/ops words
+      .replace(/\b(recruiting|recruitment|careers?|hr|human resources?|talent|acquisition|no[\s-]?reply|do[\s-]?not[\s-]?reply|noreply|notifications?|team|jobs?|hiring|alerts?)\b/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (cleaned.length >= 3) return cleaned
+  }
+
+  // Fall back to sender domain if it's not a known ATS
+  const domain = senderEmail.split('@')[1] ?? ''
+  if (!ATS_DOMAINS.has(domain)) {
+    const sld = extractSLD(senderEmail)
+    if (sld && sld.length >= 3) {
+      return sld.charAt(0).toUpperCase() + sld.slice(1)
+    }
+  }
+
+  return null
 }
 
 function normalize(s: string): string {
@@ -167,10 +232,12 @@ export async function POST() {
   }
 
   // Fetch user's contacts and firms for matching
-  const [{ data: contacts }, { data: firms }] = await Promise.all([
+  // firms is kept mutable so newly auto-created firms are available within the same sync run
+  const [{ data: contacts }, { data: firmsData }] = await Promise.all([
     supabase.from('contacts').select('id, email, firm').eq('user_id', user.id),
     supabase.from('firms').select('id, firm_name').eq('user_id', user.id),
   ])
+  const firms: { id: string; firm_name: string }[] = firmsData ?? []
 
   // Fetch emails from Graph API — last 60 days, paginate up to 500
   const since = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
@@ -211,6 +278,7 @@ export async function POST() {
 
   // Match each email to a contact and/or firm, then upsert
   const toUpsert: OutlookEmailRow[] = []
+  let firmsCreated = 0
 
   for (const msg of recruitingMessages) {
     const senderEmail = msg.from?.emailAddress?.address?.toLowerCase() ?? ''
@@ -227,7 +295,7 @@ export async function POST() {
 
     // Domain match → firm
     if (senderEmail.includes('@')) {
-      const matchedFirm = firms?.find((f) =>
+      const matchedFirm = firms.find((f) =>
         matchFirmByDomain(senderEmail, f.firm_name)
       )
       if (matchedFirm) firmId = matchedFirm.id
@@ -241,14 +309,42 @@ export async function POST() {
       }
     }
 
-    // Text match → firm (catches emails from job boards, ATS systems, etc.
-    // where the sender domain doesn't match the firm, but the firm name
-    // appears in the subject or body — e.g. "Wells Fargo interview" from greenhouse.io)
+    // Text match → firm (catches emails from ATS senders like greenhouse.io where
+    // the firm name appears in the subject/body but not the sender domain)
     if (!firmId) {
-      const textMatchedFirm = firms?.find((f) =>
+      const textMatchedFirm = firms.find((f) =>
         matchFirmByText(msg.subject ?? '', msg.bodyPreview ?? '', f.firm_name)
       )
       if (textMatchedFirm) firmId = textMatchedFirm.id
+    }
+
+    // Auto-create firm for interview/offer emails with no existing match
+    if (!firmId) {
+      const autoStatus = inferStatus(msg.subject ?? '', msg.bodyPreview ?? '')
+      if (autoStatus) {
+        const firmName = inferFirmName(senderEmail, senderName)
+        if (firmName) {
+          // Avoid duplicates: check if we already created this firm in this sync run
+          const dupe = firms.find(
+            (f) => normalize(f.firm_name) === normalize(firmName)
+          )
+          if (dupe) {
+            firmId = dupe.id
+          } else {
+            const { data: newFirm, error: insertError } = await supabase
+              .from('firms')
+              .insert({ user_id: user.id, firm_name: firmName, status: autoStatus })
+              .select('id')
+              .single()
+            if (newFirm && !insertError) {
+              firmId = newFirm.id
+              firms.push({ id: newFirm.id, firm_name: firmName })
+              firmsCreated++
+              console.log(`[Outlook Sync] Auto-created firm "${firmName}" (${autoStatus})`)
+            }
+          }
+        }
+      }
     }
 
     // Only store if at least one match was found
@@ -283,6 +379,7 @@ export async function POST() {
     scanned: allMessages.length,
     recruiting: recruitingMessages.length,
     synced: toUpsert.length,
+    firmsCreated,
   })
 }
 
