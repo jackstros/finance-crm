@@ -1,12 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import {
-  QUESTIONS,
+  QUESTIONS as STATIC_QUESTIONS,
   TOPIC_LABELS,
   DIFFICULTY_LABELS,
   type Difficulty,
   type Topic,
+  type Question,
 } from '@/lib/questions'
 
 const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'advanced']
@@ -107,11 +109,29 @@ function QuestionCard({ q }: { q: (typeof QUESTIONS)[number] }) {
 }
 
 export default function PracticePage() {
+  const supabase = createClient()
+  const [questions, setQuestions] = useState<Question[]>([])
+  const [loadingQ, setLoadingQ] = useState(true)
   const [difficulty, setDifficulty] = useState<Difficulty | 'all'>('all')
   const [topic, setTopic] = useState<Topic | 'all'>('all')
   const [revealed, setRevealed] = useState(false)
 
-  const filtered = QUESTIONS.filter(
+  useEffect(() => {
+    supabase
+      .from('questions')
+      .select('*')
+      .order('created_at', { ascending: true })
+      .then(({ data }) => {
+        setQuestions(data && data.length > 0 ? data : STATIC_QUESTIONS)
+        setLoadingQ(false)
+      })
+      .catch(() => {
+        setQuestions(STATIC_QUESTIONS)
+        setLoadingQ(false)
+      })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const filtered = questions.filter(
     (q) =>
       (difficulty === 'all' || q.difficulty === difficulty) &&
       (topic === 'all' || q.topic === topic)
@@ -121,16 +141,24 @@ export default function PracticePage() {
   const difficultyCounts = Object.fromEntries(
     DIFFICULTIES.map((d) => [
       d,
-      QUESTIONS.filter((q) => q.difficulty === d && (topic === 'all' || q.topic === topic)).length,
+      questions.filter((q) => q.difficulty === d && (topic === 'all' || q.topic === topic)).length,
     ])
   ) as Record<Difficulty, number>
 
   const topicCounts = Object.fromEntries(
     TOPICS.map((t) => [
       t,
-      QUESTIONS.filter((q) => q.topic === t && (difficulty === 'all' || q.difficulty === difficulty)).length,
+      questions.filter((q) => q.topic === t && (difficulty === 'all' || q.difficulty === difficulty)).length,
     ])
   ) as Record<Topic, number>
+
+  if (loadingQ) {
+    return (
+      <div className="px-8 py-8 max-w-3xl">
+        <div className="flex items-center justify-center py-32 text-sm text-slate-400">Loading…</div>
+      </div>
+    )
+  }
 
   return (
     <div className="px-8 py-8 max-w-3xl">
@@ -148,7 +176,7 @@ export default function PracticePage() {
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-xs font-medium text-slate-400 w-16 shrink-0">Difficulty</span>
           <FilterPill active={difficulty === 'all'} onClick={() => setDifficulty('all')}>
-            All ({QUESTIONS.filter((q) => topic === 'all' || q.topic === topic).length})
+            All ({questions.filter((q) => topic === 'all' || q.topic === topic).length})
           </FilterPill>
           {DIFFICULTIES.map((d) => (
             <FilterPill key={d} active={difficulty === d} onClick={() => setDifficulty(d)}>
@@ -161,7 +189,7 @@ export default function PracticePage() {
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-xs font-medium text-slate-400 w-16 shrink-0">Topic</span>
           <FilterPill active={topic === 'all'} onClick={() => setTopic('all')}>
-            All ({QUESTIONS.filter((q) => difficulty === 'all' || q.difficulty === difficulty).length})
+            All ({questions.filter((q) => difficulty === 'all' || q.difficulty === difficulty).length})
           </FilterPill>
           {TOPICS.map((t) => (
             <FilterPill key={t} active={topic === t} onClick={() => setTopic(t)}>

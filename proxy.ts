@@ -34,8 +34,17 @@ export async function proxy(request: NextRequest) {
   const isAuthPage = pathname === '/login' || pathname === '/signup'
 
   // API routes handle their own authentication — never block them here.
-  // The OAuth callback in particular must be reachable before auth is established.
   if (pathname.startsWith('/api/')) {
+    return supabaseResponse
+  }
+
+  // Admin route — only the configured admin email may access it
+  if (pathname.startsWith('/admin')) {
+    if (!user || user.email !== process.env.ADMIN_EMAIL) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/dashboard'
+      return NextResponse.redirect(url)
+    }
     return supabaseResponse
   }
 
