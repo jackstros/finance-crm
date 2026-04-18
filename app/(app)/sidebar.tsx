@@ -47,6 +47,17 @@ const navItems = [
     ),
   },
   {
+    href: '/practice',
+    label: 'Practice',
+    icon: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 14l9-5-9-5-9 5 9 5z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 14l6.16-3.422A12.083 12.083 0 0121 13.5c0 3.866-4.03 7-9 7s-9-3.134-9-7c0-.538.071-1.059.207-1.563L12 14z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 14v7" />
+      </svg>
+    ),
+  },
+  {
     href: '/settings',
     label: 'Settings',
     icon: (
