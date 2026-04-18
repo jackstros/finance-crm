@@ -27,7 +27,13 @@ function StatCard({
   )
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
+}) {
+  const params = await searchParams
+  const outlookConnected = params.outlook === 'connected'
   const supabase = await createClient()
 
   const [
@@ -62,6 +68,22 @@ export default async function DashboardPage() {
 
   return (
     <div className="px-8 py-8 max-w-4xl">
+      {outlookConnected && (
+        <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-xl px-5 py-3.5 mb-6">
+          <svg className="w-4 h-4 text-green-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+          <p className="text-sm text-green-800">
+            <span className="font-medium">Outlook connected.</span>{' '}
+            Go to{' '}
+            <a href="/settings" className="underline underline-offset-2 hover:text-green-900">
+              Settings
+            </a>{' '}
+            to sync your recruiting emails.
+          </p>
+        </div>
+      )}
+
       <div className="mb-8">
         <h1 className="text-2xl font-semibold text-slate-900">Dashboard</h1>
         <p className="text-sm text-slate-500 mt-1">Your recruiting pipeline at a glance</p>

@@ -125,8 +125,8 @@ export async function GET(request: NextRequest) {
 
   console.log('[Outlook OAuth] Connected successfully for user', user.id, '— email:', microsoftEmail)
 
-  // Clear CSRF cookie and redirect to settings with success flag
-  const response = NextResponse.redirect(`${appUrl}/settings?connected=true`)
+  // Clear CSRF cookie and redirect to dashboard with success flag
+  const response = NextResponse.redirect(`${appUrl}/dashboard?outlook=connected`)
   response.cookies.delete('ms_oauth_state')
   return response
 }
