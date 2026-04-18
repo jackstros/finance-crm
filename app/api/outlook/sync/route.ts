@@ -195,6 +195,119 @@ async function getValidAccessToken(
   return fresh.access_token
 }
 
+// ── Debug endpoint: GET /api/outlook/sync ────────────────────────────────────
+// Makes raw unfiltered Graph API calls and returns everything for inspection.
+// Remove this handler once the sync is confirmed working.
+export async function GET() {
+  const cookieStore = await cookies()
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() { return cookieStore.getAll() },
+        setAll(cookiesToSet) {
+          try { cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options)) } catch {}
+        },
+      },
+    }
+  )
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // ── 1. Token state from DB ──────────────────────────────────────────────────
+  const { data: tokenRow } = await supabase
+    .from('microsoft_tokens')
+    .select('access_token, refresh_token, expires_at, microsoft_email')
+    .eq('user_id', user.id)
+    .single()
+
+  const tokenInfo = tokenRow
+    ? {
+        microsoft_email: tokenRow.microsoft_email,
+        expires_at: tokenRow.expires_at,
+        is_expired: new Date(tokenRow.expires_at) < new Date(),
+        expires_in_seconds: Math.round((new Date(tokenRow.expires_at).getTime() - Date.now()) / 1000),
+        has_refresh_token: !!tokenRow.refresh_token,
+        access_token_prefix: tokenRow.access_token?.slice(0, 20) + '…',
+      }
+    : null
+
+  if (!tokenRow) {
+    return NextResponse.json({ error: 'No token row found in DB', tokenInfo })
+  }
+
+  const accessToken = await getValidAccessToken(supabase, user.id)
+
+  // ── 2. /me — verify token is valid and check granted scopes ────────────────
+  const meRes = await fetch('https://graph.microsoft.com/v1.0/me', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  const meBody = await meRes.json()
+
+  // ── 3. Raw unfiltered messages — no $filter, no $orderby, just top 10 ──────
+  const rawRes = await fetch(
+    'https://graph.microsoft.com/v1.0/me/messages?$top=10&$select=id,subject,from,receivedDateTime,bodyPreview',
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  )
+  const rawBody = await rawRes.json()
+
+  // ── 4. Messages with the date filter we actually use in sync ────────────────
+  const since = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
+  const filteredUrl =
+    `https://graph.microsoft.com/v1.0/me/messages` +
+    `?$filter=receivedDateTime ge ${since}` +
+    `&$select=id,subject,from,receivedDateTime,bodyPreview` +
+    `&$top=10&$orderby=receivedDateTime desc`
+  const filteredRes = await fetch(filteredUrl, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  const filteredBody = await filteredRes.json()
+
+  // ── 5. Mail folders — confirm which folders exist ───────────────────────────
+  const foldersRes = await fetch(
+    'https://graph.microsoft.com/v1.0/me/mailFolders?$top=20',
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  )
+  const foldersBody = await foldersRes.json()
+
+  return NextResponse.json({
+    token: tokenInfo,
+    me: { status: meRes.status, body: meBody },
+    rawMessages: {
+      status: rawRes.status,
+      url: 'GET /me/messages?$top=10 (no filter)',
+      count: rawBody.value?.length ?? 0,
+      error: rawBody.error ?? null,
+      messages: (rawBody.value ?? []).map((m: GraphMessage) => ({
+        subject: m.subject,
+        from: m.from?.emailAddress?.address,
+        received: m.receivedDateTime,
+      })),
+    },
+    filteredMessages: {
+      status: filteredRes.status,
+      url: filteredUrl,
+      count: filteredBody.value?.length ?? 0,
+      error: filteredBody.error ?? null,
+      messages: (filteredBody.value ?? []).map((m: GraphMessage) => ({
+        subject: m.subject,
+        from: m.from?.emailAddress?.address,
+        received: m.receivedDateTime,
+      })),
+    },
+    mailFolders: {
+      status: foldersRes.status,
+      folders: (foldersBody.value ?? []).map((f: { displayName: string; totalItemCount: number; unreadItemCount: number }) => ({
+        name: f.displayName,
+        total: f.totalItemCount,
+        unread: f.unreadItemCount,
+      })),
+    },
+  })
+}
+
 export async function POST() {
   const cookieStore = await cookies()
   const supabase = createServerClient(
