@@ -285,137 +285,22 @@ export async function POST() {
     console.log(`[Outlook Sync]   subject: "${m.subject ?? ''}" | from: "${m.from?.emailAddress?.address ?? ''}" (${m.from?.emailAddress?.name ?? ''}) | received: ${m.receivedDateTime ?? ''}`)
   }
 
-  // Filter for recruiting-related emails
-  console.log('[Outlook Sync] ── KEYWORD FILTER ──')
-  const recruitingMessages = allMessages.filter((m) => {
-    const subject = m.subject ?? ''
-    const body = m.bodyPreview ?? ''
-    const hit = RECRUITING_KEYWORDS.find((kw) =>
-      (subject + ' ' + body).toLowerCase().includes(kw)
-    )
-    if (hit) {
-      console.log(`[Outlook Sync]   PASS  "${subject}" — matched keyword: "${hit}"`)
-    } else {
-      console.log(`[Outlook Sync]   SKIP  "${subject}" — no recruiting keyword found`)
-    }
-    return !!hit
-  })
-
-  console.log(`[Outlook Sync] ${recruitingMessages.length}/${allMessages.length} emails passed keyword filter`)
-
-  // Match each email to a contact and/or firm, then upsert
-  console.log('[Outlook Sync] ── MATCHING ──')
-  const toUpsert: OutlookEmailRow[] = []
-  let firmsCreated = 0
-
-  for (const msg of recruitingMessages) {
-    const senderEmail = msg.from?.emailAddress?.address?.toLowerCase() ?? ''
-    const senderName = msg.from?.emailAddress?.name ?? ''
-    const subject = msg.subject ?? ''
-
-    console.log(`[Outlook Sync] Processing: "${subject}" from ${senderEmail} (${senderName})`)
-
-    let contactId: string | null = null
-    let firmId: string | null = null
-
-    // Exact email match → contact
-    const matchedContact = contacts?.find(
-      (c) => c.email && c.email.toLowerCase() === senderEmail
-    )
-    if (matchedContact) {
-      contactId = matchedContact.id
-      console.log(`[Outlook Sync]   contact match (exact email): ${matchedContact.id}`)
-    }
-
-    // Domain match → firm
-    if (senderEmail.includes('@')) {
-      const matchedFirm = firms.find((f) =>
-        matchFirmByDomain(senderEmail, f.firm_name)
-      )
-      if (matchedFirm) {
-        firmId = matchedFirm.id
-        console.log(`[Outlook Sync]   firm match (domain): "${matchedFirm.firm_name}"`)
-      } else {
-        console.log(`[Outlook Sync]   no domain firm match for sender domain "${senderEmail.split('@')[1]}"`)
-      }
-
-      // Domain match for contact via their firm field
-      if (!contactId) {
-        const domainContact = contacts?.find(
-          (c) => c.firm && matchFirmByDomain(senderEmail, c.firm)
-        )
-        if (domainContact) {
-          contactId = domainContact.id
-          console.log(`[Outlook Sync]   contact match (firm domain): ${domainContact.id}`)
-        }
-      }
-    }
-
-    // Text match → firm
-    if (!firmId) {
-      const textMatchedFirm = firms.find((f) =>
-        matchFirmByText(subject, msg.bodyPreview ?? '', f.firm_name)
-      )
-      if (textMatchedFirm) {
-        firmId = textMatchedFirm.id
-        console.log(`[Outlook Sync]   firm match (text): "${textMatchedFirm.firm_name}"`)
-      } else {
-        console.log(`[Outlook Sync]   no text firm match against ${firms.length} firms`)
-      }
-    }
-
-    // Auto-create firm for interview/offer emails with no existing match
-    if (!firmId) {
-      const autoStatus = inferStatus(subject, msg.bodyPreview ?? '')
-      console.log(`[Outlook Sync]   auto-create check: inferStatus="${autoStatus ?? 'null'}"`)
-      if (autoStatus) {
-        const firmName = inferFirmName(senderEmail, senderName)
-        console.log(`[Outlook Sync]   inferFirmName="${firmName ?? 'null'}"`)
-        if (firmName) {
-          const dupe = firms.find(
-            (f) => normalize(f.firm_name) === normalize(firmName)
-          )
-          if (dupe) {
-            firmId = dupe.id
-            console.log(`[Outlook Sync]   reused existing firm "${dupe.firm_name}" (created earlier this run)`)
-          } else {
-            const { data: newFirm, error: insertError } = await supabase
-              .from('firms')
-              .insert({ user_id: user.id, firm_name: firmName, status: autoStatus })
-              .select('id')
-              .single()
-            if (newFirm && !insertError) {
-              firmId = newFirm.id
-              firms.push({ id: newFirm.id, firm_name: firmName })
-              firmsCreated++
-              console.log(`[Outlook Sync]   AUTO-CREATED firm "${firmName}" (${autoStatus}) id=${newFirm.id}`)
-            } else {
-              console.error(`[Outlook Sync]   firm insert failed:`, insertError)
-            }
-          }
-        } else {
-          console.log(`[Outlook Sync]   could not infer firm name — email will be dropped`)
-        }
-      }
-    }
-
-    if (contactId || firmId) {
-      console.log(`[Outlook Sync]   → QUEUED for upsert (contactId=${contactId}, firmId=${firmId})`)
-      toUpsert.push({
-        user_id: user.id,
-        message_id: msg.id,
-        subject: subject || '(no subject)',
-        from_email: senderEmail,
-        from_name: senderName,
-        received_at: msg.receivedDateTime ?? null,
-        body_preview: msg.bodyPreview ?? null,
-        contact_id: contactId,
-        firm_id: firmId,
-      })
-    } else {
-      console.log(`[Outlook Sync]   → DROPPED — no contact or firm match and auto-create did not fire`)
-    }
-  }
+  // ── FILTERING TEMPORARILY DISABLED ──────────────────────────────────────────
+  // Syncing ALL emails with no keyword or match filtering to verify Graph API
+  // is returning data correctly. Re-enable filtering once confirmed working.
+  // ────────────────────────────────────────────────────────────────────────────
+  const toUpsert: OutlookEmailRow[] = allMessages.map((msg) => ({
+    user_id: user.id,
+    message_id: msg.id,
+    subject: msg.subject ?? '(no subject)',
+    from_email: msg.from?.emailAddress?.address?.toLowerCase() ?? '',
+    from_name: msg.from?.emailAddress?.name ?? '',
+    received_at: msg.receivedDateTime ?? null,
+    body_preview: msg.bodyPreview ?? null,
+    contact_id: null,
+    firm_id: null,
+  }))
+  const firmsCreated = 0
 
   console.log(`[Outlook Sync] ── UPSERT: ${toUpsert.length} emails ──`)
   if (toUpsert.length > 0) {
@@ -435,13 +320,12 @@ export async function POST() {
     .update({ last_synced_at: new Date().toISOString() })
     .eq('user_id', user.id)
 
-  console.log(`[Outlook Sync] ── DONE: scanned=${allMessages.length} recruiting=${recruitingMessages.length} synced=${toUpsert.length} firmsCreated=${firmsCreated} ──`)
+  console.log(`[Outlook Sync] ── DONE: scanned=${allMessages.length} synced=${toUpsert.length} (no filtering active) ──`)
 
   return NextResponse.json({
     scanned: allMessages.length,
-    recruiting: recruitingMessages.length,
     synced: toUpsert.length,
-    firmsCreated,
+    note: 'Filtering disabled — all emails synced',
   })
 }
 
