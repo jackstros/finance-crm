@@ -62,6 +62,21 @@ function matchFirmByDomain(senderEmail: string, firmName: string): boolean {
   })
 }
 
+// Match a firm by name appearing in the email subject or body preview.
+// Handles multi-word names like "Wells Fargo" and abbreviations like "J.P. Morgan".
+function matchFirmByText(subject: string, bodyPreview: string, firmName: string): boolean {
+  const text = normalize(subject + ' ' + bodyPreview)
+  const normFirm = normalize(firmName)
+  if (normFirm.length < 3) return false
+
+  // Full normalized name appears in text
+  if (text.includes(normFirm)) return true
+
+  // Any word in the firm name (5+ chars) appears in the text
+  const words = firmName.toLowerCase().split(/\s+/).filter((w) => w.length >= 5)
+  return words.some((w) => text.includes(normalize(w)))
+}
+
 async function getValidAccessToken(
   supabase: ReturnType<typeof createServerClient>,
   userId: string
@@ -224,6 +239,16 @@ export async function POST() {
         )
         if (domainContact) contactId = domainContact.id
       }
+    }
+
+    // Text match → firm (catches emails from job boards, ATS systems, etc.
+    // where the sender domain doesn't match the firm, but the firm name
+    // appears in the subject or body — e.g. "Wells Fargo interview" from greenhouse.io)
+    if (!firmId) {
+      const textMatchedFirm = firms?.find((f) =>
+        matchFirmByText(msg.subject ?? '', msg.bodyPreview ?? '', f.firm_name)
+      )
+      if (textMatchedFirm) firmId = textMatchedFirm.id
     }
 
     // Only store if at least one match was found
