@@ -33,6 +33,12 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
   const isAuthPage = pathname === '/login' || pathname === '/signup'
 
+  // API routes handle their own authentication — never block them here.
+  // The OAuth callback in particular must be reachable before auth is established.
+  if (pathname.startsWith('/api/')) {
+    return supabaseResponse
+  }
+
   if (!user && !isAuthPage) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'

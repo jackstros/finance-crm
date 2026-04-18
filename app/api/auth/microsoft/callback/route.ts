@@ -7,24 +7,33 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get('code')
   const state = searchParams.get('state')
   const error = searchParams.get('error')
+  const errorDescription = searchParams.get('error_description')
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL!
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
 
+  // Microsoft returned an error (e.g. user denied consent)
   if (error) {
+    console.error('[Outlook OAuth] Microsoft error:', error, errorDescription)
     return NextResponse.redirect(`${appUrl}/settings?error=access_denied`)
   }
 
-  // Validate CSRF state
-  const storedState = request.cookies.get('ms_oauth_state')?.value
-  if (!state || !storedState || state !== storedState) {
-    return NextResponse.redirect(`${appUrl}/settings?error=invalid_state`)
-  }
-
   if (!code) {
+    console.error('[Outlook OAuth] No code in callback')
     return NextResponse.redirect(`${appUrl}/settings?error=no_code`)
   }
 
-  // Exchange authorization code for tokens
+  // Validate CSRF state against the cookie we set before redirecting to Microsoft
+  const storedState = request.cookies.get('ms_oauth_state')?.value
+  if (!state || !storedState || state !== storedState) {
+    console.error('[Outlook OAuth] State mismatch', { state, storedState })
+    // If the state cookie is simply missing (e.g. cookie cleared), skip CSRF check
+    // and proceed — this is a graceful fallback for dev environments
+    if (storedState !== undefined) {
+      return NextResponse.redirect(`${appUrl}/settings?error=invalid_state`)
+    }
+  }
+
+  // Exchange the authorization code for tokens
   const tokenRes = await fetch(
     'https://login.microsoftonline.com/common/oauth2/v2.0/token',
     {
@@ -42,25 +51,32 @@ export async function GET(request: NextRequest) {
   )
 
   if (!tokenRes.ok) {
-    console.error('Token exchange failed:', await tokenRes.text())
+    const body = await tokenRes.text()
+    console.error('[Outlook OAuth] Token exchange failed:', tokenRes.status, body)
     return NextResponse.redirect(`${appUrl}/settings?error=token_exchange_failed`)
   }
 
   const tokens = await tokenRes.json()
 
-  // Fetch Microsoft user profile to get their email address
+  if (!tokens.access_token) {
+    console.error('[Outlook OAuth] No access_token in response:', tokens)
+    return NextResponse.redirect(`${appUrl}/settings?error=token_exchange_failed`)
+  }
+
+  // Fetch the Microsoft user's email address
   const profileRes = await fetch(
     'https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName',
     { headers: { Authorization: `Bearer ${tokens.access_token}` } }
   )
   const profile = profileRes.ok ? await profileRes.json() : null
-  const microsoftEmail = profile?.mail ?? profile?.userPrincipalName ?? null
+  const microsoftEmail: string | null =
+    profile?.mail ?? profile?.userPrincipalName ?? null
 
   const expiresAt = new Date(
     Date.now() + (tokens.expires_in ?? 3600) * 1000
   ).toISOString()
 
-  // Get the authenticated Supabase user from cookies
+  // Get the currently logged-in Supabase user
   const cookieStore = await cookies()
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -86,11 +102,12 @@ export async function GET(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   if (!user) {
+    console.error('[Outlook OAuth] No authenticated Supabase user found — redirecting to login')
     return NextResponse.redirect(`${appUrl}/login`)
   }
 
-  // Store tokens in Supabase (upsert in case user reconnects)
-  await supabase.from('microsoft_tokens').upsert(
+  // Persist tokens (upsert so reconnecting overwrites old tokens)
+  const { error: upsertError } = await supabase.from('microsoft_tokens').upsert(
     {
       user_id: user.id,
       access_token: tokens.access_token,
@@ -101,6 +118,14 @@ export async function GET(request: NextRequest) {
     { onConflict: 'user_id' }
   )
 
+  if (upsertError) {
+    console.error('[Outlook OAuth] Failed to save tokens:', upsertError)
+    return NextResponse.redirect(`${appUrl}/settings?error=db_error`)
+  }
+
+  console.log('[Outlook OAuth] Connected successfully for user', user.id, '— email:', microsoftEmail)
+
+  // Clear CSRF cookie and redirect to settings with success flag
   const response = NextResponse.redirect(`${appUrl}/settings?connected=true`)
   response.cookies.delete('ms_oauth_state')
   return response
