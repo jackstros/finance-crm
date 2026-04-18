@@ -48,5 +48,6 @@ create trigger microsoft_tokens_updated_at
   before update on public.microsoft_tokens
   for each row execute function update_updated_at();
 
--- NOTE: Register http://localhost:3000/api/auth/microsoft/callback
+-- NOTE: Register http://localhost:3001/api/auth/microsoft/callback
 -- as a Redirect URI in your Azure app registration (Platform: Web).
+-- For production, also add your deployed URL.
