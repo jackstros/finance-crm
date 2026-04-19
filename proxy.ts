@@ -31,7 +31,8 @@ export async function proxy(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   const { pathname } = request.nextUrl
-  const isAuthPage = pathname === '/login' || pathname === '/signup'
+  const isAuthPage   = pathname === '/login' || pathname === '/signup'
+  const isPublicPage = pathname === '/'
 
   // API routes handle their own authentication — never block them here.
   if (pathname.startsWith('/api/')) {
@@ -48,7 +49,7 @@ export async function proxy(request: NextRequest) {
     return supabaseResponse
   }
 
-  if (!user && !isAuthPage) {
+  if (!user && !isAuthPage && !isPublicPage) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)

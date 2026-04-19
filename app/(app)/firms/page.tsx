@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
-type Status = 'researching' | 'applied' | 'interview' | 'offer' | 'rejected'
+type Status = 'prospective' | 'applied' | 'interview' | 'offer' | 'rejected'
 
 type Firm = {
   id: string
@@ -26,28 +26,31 @@ type FormData = {
 const EMPTY_FORM: FormData = {
   firm_name: '',
   role: '',
-  status: 'researching',
+  status: 'prospective',
   interview_notes: '',
   last_contacted: '',
 }
 
-const STATUS_META: Record<Status, { label: string; color: string; bg: string }> = {
-  researching: { label: 'Researching', color: 'text-slate-700', bg: 'bg-slate-100' },
-  applied: { label: 'Applied', color: 'text-blue-700', bg: 'bg-blue-50' },
-  interview: { label: 'Interview', color: 'text-amber-700', bg: 'bg-amber-50' },
-  offer: { label: 'Offer', color: 'text-green-700', bg: 'bg-green-50' },
-  rejected: { label: 'Rejected', color: 'text-red-700', bg: 'bg-red-50' },
+const STATUS_META: Record<Status, { label: string; badge: string }> = {
+  prospective: { label: 'Prospective', badge: 'bg-n7 text-muted' },
+  applied:     { label: 'Applied',     badge: 'bg-[#4A90E2]/20 text-[#4A90E2]' },
+  interview:   { label: 'Interview',   badge: 'bg-warn/20 text-warn' },
+  offer:       { label: 'Offer',       badge: 'bg-pos/20 text-pos' },
+  rejected:    { label: 'Rejected',    badge: 'bg-neg/20 text-neg' },
 }
 
-const ALL_STATUSES: Status[] = ['researching', 'applied', 'interview', 'offer', 'rejected']
+const ALL_STATUSES: Status[] = ['prospective', 'applied', 'interview', 'offer', 'rejected']
+
+const inputCls =
+  'w-full px-3 py-2 text-sm rounded-lg border border-n7 bg-n9 text-white placeholder-[#8A9BB5]/50 focus:outline-none focus:ring-1 focus:ring-gold focus:border-gold transition'
+
+const labelCls = 'block text-xs font-medium text-muted uppercase tracking-wider mb-1.5'
 
 function StatusBadge({ status }: { status: Status }) {
-  const meta = STATUS_META[status]
+  const { label, badge } = STATUS_META[status]
   return (
-    <span
-      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${meta.bg} ${meta.color}`}
-    >
-      {meta.label}
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${badge}`}>
+      {label}
     </span>
   )
 }
@@ -62,14 +65,11 @@ function Modal({
   children: React.ReactNode
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-sm">
-      <div className="w-full max-w-lg bg-white rounded-2xl border border-slate-200 shadow-xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white">
-          <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 transition-colors"
-          >
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <div className="w-full max-w-lg bg-n8 rounded-xl border border-n7 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-n7 sticky top-0 bg-n8">
+          <h2 className="text-sm font-semibold text-white">{title}</h2>
+          <button onClick={onClose} className="text-muted hover:text-white transition-colors">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -99,89 +99,54 @@ function FirmForm({
   }
 
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault()
-        onSave(form)
-      }}
-      className="space-y-4"
-    >
+    <form onSubmit={(e) => { e.preventDefault(); onSave(form) }} className="space-y-4">
       <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1.5">
-          Firm Name <span className="text-red-400">*</span>
-        </label>
-        <input
-          required
-          value={form.firm_name}
-          onChange={(e) => set('firm_name', e.target.value)}
-          placeholder="Goldman Sachs"
-          className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
-        />
+        <label className={labelCls}>Firm Name <span className="text-neg normal-case">*</span></label>
+        <input required value={form.firm_name} onChange={(e) => set('firm_name', e.target.value)}
+          placeholder="Goldman Sachs" className={inputCls} />
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1.5">Role</label>
-          <input
-            value={form.role}
-            onChange={(e) => set('role', e.target.value)}
-            placeholder="Summer Analyst"
-            className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
-          />
+          <label className={labelCls}>Role</label>
+          <input value={form.role} onChange={(e) => set('role', e.target.value)}
+            placeholder="Summer Analyst" className={inputCls} />
         </div>
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1.5">Status</label>
+          <label className={labelCls}>Status</label>
           <select
             value={form.status}
             onChange={(e) => set('status', e.target.value as Status)}
-            className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition bg-white"
+            className={inputCls}
           >
             {ALL_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {STATUS_META[s].label}
-              </option>
+              <option key={s} value={s}>{STATUS_META[s].label}</option>
             ))}
           </select>
         </div>
       </div>
       <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1.5">
-          Last Contacted
-        </label>
-        <input
-          type="date"
-          value={form.last_contacted}
-          onChange={(e) => set('last_contacted', e.target.value)}
-          className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
-        />
+        <label className={labelCls}>Last Contacted</label>
+        <input type="date" value={form.last_contacted} onChange={(e) => set('last_contacted', e.target.value)}
+          className={inputCls} />
       </div>
       <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1.5">
+        <label className={labelCls}>
           Interview Notes
           {form.status === 'interview' && (
-            <span className="ml-1.5 text-amber-600 font-normal">(Active interview)</span>
+            <span className="ml-1.5 text-warn normal-case font-normal">(Active interview)</span>
           )}
         </label>
-        <textarea
-          rows={4}
-          value={form.interview_notes}
-          onChange={(e) => set('interview_notes', e.target.value)}
+        <textarea rows={4} value={form.interview_notes} onChange={(e) => set('interview_notes', e.target.value)}
           placeholder="Round details, interviewer names, questions asked, key takeaways…"
-          className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition resize-none"
-        />
+          className={`${inputCls} resize-none`} />
       </div>
       <div className="flex justify-end gap-2 pt-1">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="px-4 py-2 text-sm font-medium text-slate-600 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
-        >
+        <button type="button" onClick={onCancel}
+          className="px-4 py-2 text-sm font-medium text-muted rounded-lg border border-n7 hover:bg-n6 hover:text-white transition-colors">
           Cancel
         </button>
-        <button
-          type="submit"
-          disabled={saving}
-          className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-60 transition-colors"
-        >
+        <button type="submit" disabled={saving}
+          className="px-4 py-2 text-sm font-medium text-n9 bg-gold rounded-lg hover:bg-gold2 disabled:opacity-60 transition-colors">
           {saving ? 'Saving…' : 'Save'}
         </button>
       </div>
@@ -198,6 +163,7 @@ export default function FirmsPage() {
   const [editing, setEditing] = useState<Firm | null>(null)
   const [notesModal, setNotesModal] = useState<Firm | null>(null)
   const [statusFilter, setStatusFilter] = useState<Status | 'all'>('all')
+  const [search, setSearch] = useState('')
 
   const load = useCallback(async () => {
     const { data } = await supabase
@@ -208,15 +174,11 @@ export default function FirmsPage() {
     setLoading(false)
   }, [supabase])
 
-  useEffect(() => {
-    load()
-  }, [load])
+  useEffect(() => { load() }, [load])
 
   async function handleSave(form: FormData) {
     setSaving(true)
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
     const payload = {
@@ -229,11 +191,8 @@ export default function FirmsPage() {
 
     if (editing) {
       await supabase.from('firms').update(payload).eq('id', editing.id)
-      await supabase
-        .from('follow_up_dismissals')
-        .delete()
-        .eq('entity_type', 'firm')
-        .eq('entity_id', editing.id)
+      await supabase.from('follow_up_dismissals').delete()
+        .eq('entity_type', 'firm').eq('entity_id', editing.id)
     } else {
       await supabase.from('firms').insert({ ...payload, user_id: user.id })
     }
@@ -250,33 +209,29 @@ export default function FirmsPage() {
     load()
   }
 
-  function openAdd() {
-    setEditing(null)
-    setShowModal(true)
-  }
-  function openEdit(f: Firm) {
-    setEditing(f)
-    setShowModal(true)
-  }
-  function closeModal() {
-    setShowModal(false)
-    setEditing(null)
-  }
+  function openAdd() { setEditing(null); setShowModal(true) }
+  function openEdit(f: Firm) { setEditing(f); setShowModal(true) }
+  function closeModal() { setShowModal(false); setEditing(null) }
 
-  const filtered =
-    statusFilter === 'all' ? firms : firms.filter((f) => f.status === statusFilter)
+  const byStatus = statusFilter === 'all' ? firms : firms.filter((f) => f.status === statusFilter)
+  const filtered = search.trim()
+    ? byStatus.filter((f) =>
+        f.firm_name.toLowerCase().includes(search.toLowerCase()) ||
+        (f.role ?? '').toLowerCase().includes(search.toLowerCase())
+      )
+    : byStatus
 
   return (
     <div className="px-8 py-8 max-w-5xl">
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Firms</h1>
-          <p className="text-sm text-slate-500 mt-1">Companies in your recruiting pipeline</p>
+          <h1 className="text-2xl font-semibold text-white">Firms</h1>
+          <p className="text-sm text-muted mt-1">Companies in your recruiting pipeline</p>
         </div>
         <button
           onClick={openAdd}
-          className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
+          className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-n9 bg-gold rounded-lg hover:bg-gold2 transition-colors"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -285,71 +240,82 @@ export default function FirmsPage() {
         </button>
       </div>
 
-      {/* Status filter tabs */}
-      <div className="flex items-center gap-1 mb-4">
-        {(['all', ...ALL_STATUSES] as const).map((s) => (
-          <button
-            key={s}
-            onClick={() => setStatusFilter(s)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-              statusFilter === s
-                ? 'bg-indigo-600 text-white'
-                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            {s === 'all' ? 'All' : STATUS_META[s].label}
-          </button>
-        ))}
+      {/* Search + Status filter */}
+      <div className="flex items-center gap-3 mb-4">
+        <div className="relative flex-1 max-w-sm">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search firms…"
+            className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border border-n7 bg-n8 text-white placeholder-[#8A9BB5]/50 focus:outline-none focus:ring-1 focus:ring-gold focus:border-gold transition"
+          />
+        </div>
+
+        <div className="flex items-center gap-1">
+          {(['all', ...ALL_STATUSES] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setStatusFilter(s)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                statusFilter === s
+                  ? 'bg-gold text-n9'
+                  : 'text-muted hover:text-white hover:bg-n6'
+              }`}
+            >
+              {s === 'all' ? 'All' : STATUS_META[s].label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div className="bg-n8 rounded-xl border border-n7 overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center py-20 text-slate-400 text-sm">
-            Loading…
-          </div>
+          <div className="flex items-center justify-center py-20 text-muted text-sm">Loading…</div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mb-3">
-              <svg className="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <div className="w-12 h-12 bg-n7 rounded-full flex items-center justify-center mb-3">
+              <svg className="w-5 h-5 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 21h18M3 7l9-4 9 4M4 7v14M20 7v14M8 11v4M12 11v4M16 11v4" />
               </svg>
             </div>
-            <p className="text-sm font-medium text-slate-600">
-              {statusFilter === 'all'
-                ? 'No firms added yet'
-                : `No firms with status "${STATUS_META[statusFilter].label}"`}
+            <p className="text-sm font-medium text-white">
+              {search ? 'No firms match your search' : statusFilter === 'all' ? 'No firms added yet' : `No firms with status "${STATUS_META[statusFilter].label}"`}
             </p>
-            {statusFilter === 'all' && (
-              <p className="text-xs text-slate-400 mt-1">Add your first firm above</p>
+            {!search && statusFilter === 'all' && (
+              <p className="text-xs text-muted mt-1">Add your first firm above</p>
             )}
           </div>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-100">
-                <th className="text-left text-xs font-medium text-slate-400 px-4 py-3">Firm</th>
-                <th className="text-left text-xs font-medium text-slate-400 px-4 py-3">Role</th>
-                <th className="text-left text-xs font-medium text-slate-400 px-4 py-3">Status</th>
-                <th className="text-left text-xs font-medium text-slate-400 px-4 py-3">Last Contacted</th>
-                <th className="text-left text-xs font-medium text-slate-400 px-4 py-3">Notes</th>
+              <tr className="border-b border-n7">
+                <th className="text-left text-xs font-medium text-muted uppercase tracking-wider px-4 py-3">Firm</th>
+                <th className="text-left text-xs font-medium text-muted uppercase tracking-wider px-4 py-3">Role</th>
+                <th className="text-left text-xs font-medium text-muted uppercase tracking-wider px-4 py-3">Status</th>
+                <th className="text-left text-xs font-medium text-muted uppercase tracking-wider px-4 py-3">Last Contacted</th>
+                <th className="text-left text-xs font-medium text-muted uppercase tracking-wider px-4 py-3">Notes</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
-              {filtered.map((f) => (
-                <tr key={f.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-4 py-3 font-medium text-slate-900">{f.firm_name}</td>
-                  <td className="px-4 py-3 text-slate-500">{f.role ?? '—'}</td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={f.status} />
-                  </td>
-                  <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
+            <tbody>
+              {filtered.map((f, i) => (
+                <tr
+                  key={f.id}
+                  className={`border-b border-n7/50 hover:bg-n6 transition-colors ${
+                    i % 2 === 0 ? 'bg-n8' : 'bg-n9/30'
+                  }`}
+                >
+                  <td className="px-4 py-3 font-medium text-white">{f.firm_name}</td>
+                  <td className="px-4 py-3 text-muted">{f.role ?? '—'}</td>
+                  <td className="px-4 py-3"><StatusBadge status={f.status} /></td>
+                  <td className="px-4 py-3 text-muted whitespace-nowrap">
                     {f.last_contacted
                       ? new Date(f.last_contacted).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric',
+                          month: 'short', day: 'numeric', year: 'numeric',
                         })
                       : '—'}
                   </td>
@@ -357,25 +323,25 @@ export default function FirmsPage() {
                     {f.interview_notes ? (
                       <button
                         onClick={() => setNotesModal(f)}
-                        className="text-xs text-indigo-600 hover:text-indigo-700 font-medium underline underline-offset-2"
+                        className="text-xs text-gold hover:text-gold2 font-medium transition-colors"
                       >
                         View
                       </button>
                     ) : (
-                      <span className="text-slate-300">—</span>
+                      <span className="text-muted/40">—</span>
                     )}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-2">
                       <button
                         onClick={() => openEdit(f)}
-                        className="text-xs text-slate-500 hover:text-slate-900 px-2.5 py-1 rounded border border-slate-200 hover:border-slate-300 transition"
+                        className="text-xs text-muted hover:text-white px-2.5 py-1 rounded border border-n7 hover:border-n5 transition"
                       >
                         Edit
                       </button>
                       <button
                         onClick={() => handleDelete(f.id)}
-                        className="text-xs text-red-500 hover:text-red-700 px-2.5 py-1 rounded border border-red-100 hover:border-red-200 transition"
+                        className="text-xs text-neg/70 hover:text-neg px-2.5 py-1 rounded border border-neg/20 hover:border-neg/40 transition"
                       >
                         Delete
                       </button>
@@ -412,17 +378,12 @@ export default function FirmsPage() {
 
       {/* Interview notes modal */}
       {notesModal && (
-        <Modal
-          title={`Interview Notes — ${notesModal.firm_name}`}
-          onClose={() => setNotesModal(null)}
-        >
-          <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
-            {notesModal.interview_notes}
-          </p>
+        <Modal title={`Interview Notes — ${notesModal.firm_name}`} onClose={() => setNotesModal(null)}>
+          <p className="text-sm text-white whitespace-pre-wrap leading-relaxed">{notesModal.interview_notes}</p>
           <div className="flex justify-end mt-5">
             <button
               onClick={() => setNotesModal(null)}
-              className="px-4 py-2 text-sm font-medium text-slate-600 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+              className="px-4 py-2 text-sm font-medium text-muted rounded-lg border border-n7 hover:bg-n6 hover:text-white transition-colors"
             >
               Close
             </button>

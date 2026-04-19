@@ -30,17 +30,23 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+    <div className="min-h-screen flex items-center justify-center bg-n9">
       <div className="w-full max-w-md px-4">
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
-          <div className="mb-8">
-            <h1 className="text-2xl font-semibold text-slate-900">Welcome back</h1>
-            <p className="text-sm text-slate-500 mt-1">Sign in to your recruiting CRM</p>
+        {/* Logo */}
+        <div className="text-center mb-8">
+          <p className="text-2xl font-bold text-gold tracking-tight">RecruitBanking</p>
+          <p className="text-sm text-muted mt-1">Investment Banking Recruiting Platform</p>
+        </div>
+
+        <div className="bg-n8 rounded-xl border border-n7 p-8">
+          <div className="mb-6">
+            <h1 className="text-xl font-semibold text-white">Welcome back</h1>
+            <p className="text-sm text-muted mt-1">Sign in to your account</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              <label className="block text-xs font-medium text-muted uppercase tracking-wider mb-1.5">
                 Email
               </label>
               <input
@@ -49,12 +55,12 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 placeholder="you@example.com"
-                className="w-full px-3 py-2.5 text-sm rounded-lg border border-slate-200 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                className="w-full px-3 py-2.5 text-sm rounded-lg border border-n7 bg-n9 text-white placeholder-[#8A9BB5]/50 focus:outline-none focus:ring-1 focus:ring-gold focus:border-gold transition"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              <label className="block text-xs font-medium text-muted uppercase tracking-wider mb-1.5">
                 Password
               </label>
               <input
@@ -63,12 +69,12 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 placeholder="••••••••"
-                className="w-full px-3 py-2.5 text-sm rounded-lg border border-slate-200 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                className="w-full px-3 py-2.5 text-sm rounded-lg border border-n7 bg-n9 text-white placeholder-[#8A9BB5]/50 focus:outline-none focus:ring-1 focus:ring-gold focus:border-gold transition"
               />
             </div>
 
             {error && (
-              <p className="text-sm text-red-600 bg-red-50 px-3 py-2.5 rounded-lg border border-red-100">
+              <p className="text-sm text-neg bg-neg/10 px-3 py-2.5 rounded-lg border border-neg/20">
                 {error}
               </p>
             )}
@@ -76,17 +82,17 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 px-4 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-60 transition-colors mt-2"
+              className="w-full py-2.5 px-4 bg-gold text-n9 text-sm font-semibold rounded-lg hover:bg-gold2 disabled:opacity-60 transition-colors mt-2"
             >
               {loading ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
 
-          <p className="mt-6 text-center text-sm text-slate-500">
+          <p className="mt-6 text-center text-sm text-muted">
             Don&apos;t have an account?{' '}
             <Link
               href="/signup"
-              className="text-indigo-600 font-medium hover:text-indigo-700 transition-colors"
+              className="text-gold font-medium hover:text-gold2 transition-colors"
             >
               Sign up
             </Link>

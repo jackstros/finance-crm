@@ -3,7 +3,17 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { TOPIC_LABELS, DIFFICULTY_LABELS, type Topic, type Difficulty } from '@/lib/questions'
+import {
+  TOPIC_LABELS,
+  DIFFICULTY_LABELS,
+  QUESTION_TYPE_LABELS,
+  TOPICS,
+  DIFFICULTIES,
+  QUESTION_TYPES,
+  type Topic,
+  type Difficulty,
+  type QuestionType,
+} from '@/lib/questions'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -11,56 +21,64 @@ type DBQuestion = {
   id: string
   question: string
   answer: string
-  topic: Topic
-  difficulty: Difficulty
+  question_type: QuestionType
+  topic: Topic | null
+  difficulty: Difficulty | null  // null for behavioral
   created_at: string
 }
 
 type FormState = {
   question: string
   answer: string
-  topic: Topic
-  difficulty: Difficulty
+  question_type: QuestionType
+  topic: Topic | ''           // '' means no topic (behavioral)
+  difficulty: Difficulty | '' // '' means no difficulty (behavioral)
 }
 
 type CSVRow = {
   question: string
   answer: string
+  question_type: string
   topic: string
   difficulty: string
   valid: boolean
   errors: string[]
 }
 
-const TOPICS: Topic[] = ['accounting', 'valuation', 'dcf', 'lbo', 'other', 'brainteaser']
-const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'advanced']
-
 const EMPTY_FORM: FormState = {
   question: '',
   answer: '',
+  question_type: 'technical',
   topic: 'accounting',
   difficulty: 'easy',
 }
 
+// ── Style maps ────────────────────────────────────────────────────────────────
+
 const DIFFICULTY_BADGE: Record<Difficulty, string> = {
-  easy:     'bg-emerald-50 text-emerald-700',
-  medium:   'bg-amber-50 text-amber-700',
-  advanced: 'bg-red-50 text-red-700',
+  easy:     'bg-emerald-900/40 text-emerald-400',
+  medium:   'bg-amber-900/40 text-amber-400',
+  advanced: 'bg-red-900/40 text-red-400',
 }
 
 const TOPIC_BADGE: Record<Topic, string> = {
-  accounting:  'bg-blue-50 text-blue-700',
-  valuation:   'bg-violet-50 text-violet-700',
-  dcf:         'bg-indigo-50 text-indigo-700',
-  lbo:         'bg-orange-50 text-orange-700',
-  other:       'bg-slate-100 text-slate-600',
-  brainteaser: 'bg-pink-50 text-pink-700',
+  accounting:        'bg-blue-900/40 text-blue-400',
+  valuation:         'bg-violet-900/40 text-violet-400',
+  dcf:               'bg-indigo-900/40 text-indigo-400',
+  lbo:               'bg-orange-900/40 text-orange-400',
+  ma:                'bg-teal-900/40 text-teal-400',
+  restructuring:     'bg-red-900/40 text-red-400',
+  financial_markets: 'bg-yellow-900/40 text-yellow-400',
+}
+
+const TYPE_BADGE: Record<QuestionType, string> = {
+  behavioral: 'bg-purple-900/40 text-purple-400',
+  technical:  'bg-sky-900/40 text-sky-400',
 }
 
 // ── CSV Parser ────────────────────────────────────────────────────────────────
 
 function parseCSV(text: string): CSVRow[] {
-  // Strip BOM if present
   const cleaned = text.replace(/^\uFEFF/, '')
   const lines: string[] = []
   let current = ''
@@ -69,7 +87,6 @@ function parseCSV(text: string): CSVRow[] {
   for (let i = 0; i < cleaned.length; i++) {
     const ch = cleaned[i]
     if (ch === '"') {
-      // Handle escaped quotes ""
       if (inQuotes && cleaned[i + 1] === '"') { current += '"'; i++; continue }
       inQuotes = !inQuotes
     } else if ((ch === '\n' || (ch === '\r' && cleaned[i + 1] === '\n')) && !inQuotes) {
@@ -92,8 +109,7 @@ function parseCSV(text: string): CSVRow[] {
         if (inQ && line[i + 1] === '"') { field += '"'; i++; continue }
         inQ = !inQ
       } else if (c === ',' && !inQ) {
-        fields.push(field.trim())
-        field = ''
+        fields.push(field.trim()); field = ''
       } else {
         field += c
       }
@@ -105,41 +121,49 @@ function parseCSV(text: string): CSVRow[] {
   if (lines.length < 2) return []
 
   const headers = splitLine(lines[0]).map((h) => h.toLowerCase().replace(/"/g, '').trim())
-  const qIdx = headers.indexOf('question')
-  const aIdx = headers.indexOf('answer')
-  const tIdx = headers.indexOf('topic')
-  const dIdx = headers.indexOf('difficulty')
+  const qIdx  = headers.indexOf('question')
+  const aIdx  = headers.indexOf('answer')
+  const qtIdx = headers.indexOf('question_type')
+  const tIdx  = headers.indexOf('topic')
+  const dIdx  = headers.indexOf('difficulty')
 
-  if (qIdx === -1 || aIdx === -1 || tIdx === -1 || dIdx === -1) return []
+  if (qIdx === -1 || aIdx === -1 || qtIdx === -1 || dIdx === -1) return []
 
   return lines.slice(1)
     .filter((l) => l.trim())
     .map((line) => {
       const cols = splitLine(line)
-      const question = (cols[qIdx] ?? '').replace(/^"|"$/g, '').trim()
-      const answer   = (cols[aIdx] ?? '').replace(/^"|"$/g, '').trim()
-      const topic    = (cols[tIdx] ?? '').replace(/^"|"$/g, '').trim().toLowerCase()
-      const difficulty = (cols[dIdx] ?? '').replace(/^"|"$/g, '').trim().toLowerCase()
+      const question      = (cols[qIdx]  ?? '').replace(/^"|"$/g, '').trim()
+      const answer        = (cols[aIdx]  ?? '').replace(/^"|"$/g, '').trim()
+      const question_type = (cols[qtIdx] ?? '').replace(/^"|"$/g, '').trim().toLowerCase()
+      const topic         = tIdx !== -1 ? (cols[tIdx] ?? '').replace(/^"|"$/g, '').trim().toLowerCase() : ''
+      const difficulty    = (cols[dIdx]  ?? '').replace(/^"|"$/g, '').trim().toLowerCase()
 
       const errors: string[] = []
-      if (!question)                              errors.push('Question is empty')
-      if (!answer)                                errors.push('Answer is empty')
-      if (!TOPICS.includes(topic as Topic))       errors.push(`Invalid topic: "${topic}"`)
-      if (!DIFFICULTIES.includes(difficulty as Difficulty)) errors.push(`Invalid difficulty: "${difficulty}"`)
+      if (!question) errors.push('Question is empty')
+      if (!answer)   errors.push('Answer is empty')
+      if (!QUESTION_TYPES.includes(question_type as QuestionType))
+        errors.push(`Invalid question_type: "${question_type}" (must be behavioral or technical)`)
+      if (question_type === 'technical' && !TOPICS.includes(topic as Topic))
+        errors.push(`Invalid topic for technical question: "${topic}"`)
+      if (question_type === 'behavioral' && topic && topic !== '')
+        errors.push('Behavioral questions must not have a topic')
+      if (question_type === 'technical' && !DIFFICULTIES.includes(difficulty as Difficulty))
+        errors.push(`Invalid difficulty for technical question: "${difficulty}" (must be easy, medium, or advanced)`)
+      if (question_type === 'behavioral' && difficulty && difficulty !== '')
+        errors.push('Behavioral questions must not have a difficulty')
 
-      return { question, answer, topic, difficulty, valid: errors.length === 0, errors }
+      return { question, answer, question_type, topic, difficulty, valid: errors.length === 0, errors }
     })
 }
 
-// ── Sub-components ─────────────────────────────────────────────────────────────
+// ── Shared input styles ───────────────────────────────────────────────────────
 
-function Badge({ children, className }: { children: React.ReactNode; className: string }) {
-  return (
-    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${className}`}>
-      {children}
-    </span>
-  )
-}
+const inputCls = 'w-full px-3 py-2 text-sm rounded-lg border border-n7 bg-n9 text-white placeholder-[#8A9BB5]/50 focus:outline-none focus:ring-1 focus:ring-gold focus:border-gold transition'
+const labelCls = 'block text-xs font-medium text-muted uppercase tracking-wider mb-1.5'
+const selectCls = `${inputCls} cursor-pointer`
+
+// ── QuestionFormFields ────────────────────────────────────────────────────────
 
 function QuestionFormFields({
   form,
@@ -150,57 +174,87 @@ function QuestionFormFields({
 }) {
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
+      {/* Row 1: question_type + difficulty (difficulty hidden for behavioral) */}
+      <div className={`grid gap-4 ${form.question_type === 'technical' ? 'grid-cols-2' : 'grid-cols-1'}`}>
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1.5">Topic</label>
+          <label className={labelCls}>Question Type</label>
+          <select
+            value={form.question_type}
+            onChange={(e) => {
+              const qt = e.target.value as QuestionType
+              onChange({
+                ...form,
+                question_type: qt,
+                topic:      qt === 'behavioral' ? '' : (form.topic || 'accounting'),
+                difficulty: qt === 'behavioral' ? '' : (form.difficulty || 'easy'),
+              })
+            }}
+            className={selectCls}
+          >
+            {QUESTION_TYPES.map((t) => (
+              <option key={t} value={t}>{QUESTION_TYPE_LABELS[t]}</option>
+            ))}
+          </select>
+        </div>
+        {form.question_type === 'technical' && (
+          <div>
+            <label className={labelCls}>Difficulty</label>
+            <select
+              value={form.difficulty}
+              onChange={(e) => onChange({ ...form, difficulty: e.target.value as Difficulty })}
+              className={selectCls}
+            >
+              {DIFFICULTIES.map((d) => (
+                <option key={d} value={d}>{DIFFICULTY_LABELS[d]}</option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
+      {/* Topic — only for technical */}
+      {form.question_type === 'technical' && (
+        <div>
+          <label className={labelCls}>Topic</label>
           <select
             value={form.topic}
             onChange={(e) => onChange({ ...form, topic: e.target.value as Topic })}
-            className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+            className={selectCls}
           >
             {TOPICS.map((t) => (
               <option key={t} value={t}>{TOPIC_LABELS[t]}</option>
             ))}
           </select>
         </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1.5">Difficulty</label>
-          <select
-            value={form.difficulty}
-            onChange={(e) => onChange({ ...form, difficulty: e.target.value as Difficulty })}
-            className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-          >
-            {DIFFICULTIES.map((d) => (
-              <option key={d} value={d}>{DIFFICULTY_LABELS[d]}</option>
-            ))}
-          </select>
-        </div>
-      </div>
+      )}
+
       <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1.5">Question</label>
+        <label className={labelCls}>Question</label>
         <textarea
           rows={3}
           required
           value={form.question}
           onChange={(e) => onChange({ ...form, question: e.target.value })}
           placeholder="Enter the interview question…"
-          className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+          className={`${inputCls} resize-none`}
         />
       </div>
       <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1.5">Answer</label>
+        <label className={labelCls}>Answer</label>
         <textarea
           rows={6}
           required
           value={form.answer}
           onChange={(e) => onChange({ ...form, answer: e.target.value })}
           placeholder="Enter the full answer…"
-          className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+          className={`${inputCls} resize-none`}
         />
       </div>
     </div>
   )
 }
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
 
 function Modal({
   title,
@@ -212,11 +266,11 @@ function Modal({
   children: React.ReactNode
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-sm">
-      <div className="w-full max-w-2xl bg-white rounded-2xl border border-slate-200 shadow-xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white">
-          <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <div className="w-full max-w-2xl bg-n8 rounded-xl border border-n7 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-n7 sticky top-0 bg-n8">
+          <h2 className="text-sm font-semibold text-white">{title}</h2>
+          <button onClick={onClose} className="text-muted hover:text-white transition-colors">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -228,39 +282,45 @@ function Modal({
   )
 }
 
-// ── Main component ─────────────────────────────────────────────────────────────
+function Badge({ children, className }: { children: React.ReactNode; className: string }) {
+  return (
+    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${className}`}>
+      {children}
+    </span>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 export default function AdminPanel({ adminEmail }: { adminEmail: string }) {
   const supabase = createClient()
 
-  // Questions list
   const [questions, setQuestions] = useState<DBQuestion[]>([])
-  const [loading, setLoading] = useState(true)
-
-  // Add-question tabs
-  const [addTab, setAddTab] = useState<'manual' | 'csv'>('manual')
+  const [loading, setLoading]     = useState(true)
+  const [addTab, setAddTab]       = useState<'manual' | 'csv'>('manual')
 
   // Manual form
   const [manualForm, setManualForm] = useState<FormState>(EMPTY_FORM)
-  const [saving, setSaving] = useState(false)
-  const [saveMsg, setSaveMsg] = useState<string | null>(null)
+  const [saving, setSaving]         = useState(false)
+  const [saveMsg, setSaveMsg]       = useState<string | null>(null)
 
   // CSV
-  const [csvRows, setCsvRows] = useState<CSVRow[] | null>(null)
+  const [csvRows, setCsvRows]         = useState<CSVRow[] | null>(null)
   const [csvFileName, setCsvFileName] = useState('')
-  const [importing, setImporting] = useState(false)
-  const [importMsg, setImportMsg] = useState<string | null>(null)
+  const [importing, setImporting]     = useState(false)
+  const [importMsg, setImportMsg]     = useState<string | null>(null)
 
-  // Edit modal
-  const [editing, setEditing] = useState<DBQuestion | null>(null)
-  const [editForm, setEditForm] = useState<FormState>(EMPTY_FORM)
+  // Edit
+  const [editing, setEditing]       = useState<DBQuestion | null>(null)
+  const [editForm, setEditForm]     = useState<FormState>(EMPTY_FORM)
   const [editSaving, setEditSaving] = useState(false)
 
-  // Table filters
+  // Filters
+  const [filterType,  setFilterType]  = useState<QuestionType | 'all'>('all')
   const [filterTopic, setFilterTopic] = useState<Topic | 'all'>('all')
-  const [filterDiff, setFilterDiff] = useState<Difficulty | 'all'>('all')
+  const [filterDiff,  setFilterDiff]  = useState<Difficulty | 'all'>('all')
 
-  // ── Data loading ─────────────────────────────────────────────────────────────
+  // ── Data ─────────────────────────────────────────────────────────────────────
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -280,12 +340,14 @@ export default function AdminPanel({ adminEmail }: { adminEmail: string }) {
     e.preventDefault()
     setSaving(true)
     setSaveMsg(null)
-    const { error } = await supabase.from('questions').insert({
-      question: manualForm.question.trim(),
-      answer: manualForm.answer.trim(),
-      topic: manualForm.topic,
-      difficulty: manualForm.difficulty,
-    })
+    const payload = {
+      question:      manualForm.question.trim(),
+      answer:        manualForm.answer.trim(),
+      question_type: manualForm.question_type,
+      topic:         manualForm.question_type === 'technical' ? manualForm.topic || null : null,
+      difficulty:    manualForm.question_type === 'technical' ? manualForm.difficulty || null : null,
+    }
+    const { error } = await supabase.from('questions').insert(payload)
     if (error) {
       setSaveMsg(`Error: ${error.message}`)
     } else {
@@ -304,10 +366,7 @@ export default function AdminPanel({ adminEmail }: { adminEmail: string }) {
     setCsvFileName(file.name)
     setImportMsg(null)
     const reader = new FileReader()
-    reader.onload = (ev) => {
-      const text = ev.target?.result as string
-      setCsvRows(parseCSV(text))
-    }
+    reader.onload = (ev) => setCsvRows(parseCSV(ev.target?.result as string))
     reader.readAsText(file)
   }
 
@@ -319,16 +378,17 @@ export default function AdminPanel({ adminEmail }: { adminEmail: string }) {
     setImportMsg(null)
     const { error } = await supabase.from('questions').insert(
       valid.map((r) => ({
-        question: r.question,
-        answer: r.answer,
-        topic: r.topic as Topic,
-        difficulty: r.difficulty as Difficulty,
+        question:      r.question,
+        answer:        r.answer,
+        question_type: r.question_type as QuestionType,
+        topic:         r.question_type === 'technical' ? (r.topic as Topic) || null : null,
+        difficulty:    r.question_type === 'technical' ? (r.difficulty as Difficulty) || null : null,
       }))
     )
     if (error) {
       setImportMsg(`Error: ${error.message}`)
     } else {
-      setImportMsg(`Imported ${valid.length} question${valid.length !== 1 ? 's' : ''} successfully.`)
+      setImportMsg(`Imported ${valid.length} question${valid.length !== 1 ? 's' : ''}.`)
       setCsvRows(null)
       setCsvFileName('')
       load()
@@ -336,11 +396,17 @@ export default function AdminPanel({ adminEmail }: { adminEmail: string }) {
     setImporting(false)
   }
 
-  // ── Edit ─────────────────────────────────────────────────────────────────
+  // ── Edit / Delete ─────────────────────────────────────────────────────────
 
   function openEdit(q: DBQuestion) {
     setEditing(q)
-    setEditForm({ question: q.question, answer: q.answer, topic: q.topic, difficulty: q.difficulty })
+    setEditForm({
+      question:      q.question,
+      answer:        q.answer,
+      question_type: q.question_type,
+      topic:         q.topic ?? '',
+      difficulty:    q.difficulty ?? '',
+    })
   }
 
   async function handleEditSave(e: React.FormEvent) {
@@ -350,20 +416,16 @@ export default function AdminPanel({ adminEmail }: { adminEmail: string }) {
     const { error } = await supabase
       .from('questions')
       .update({
-        question: editForm.question.trim(),
-        answer: editForm.answer.trim(),
-        topic: editForm.topic,
-        difficulty: editForm.difficulty,
+        question:      editForm.question.trim(),
+        answer:        editForm.answer.trim(),
+        question_type: editForm.question_type,
+        topic:         editForm.question_type === 'technical' ? editForm.topic || null : null,
+        difficulty:    editForm.question_type === 'technical' ? editForm.difficulty || null : null,
       })
       .eq('id', editing.id)
-    if (!error) {
-      setEditing(null)
-      load()
-    }
+    if (!error) { setEditing(null); load() }
     setEditSaving(false)
   }
-
-  // ── Delete ────────────────────────────────────────────────────────────────
 
   async function handleDelete(id: string) {
     if (!confirm('Delete this question?')) return
@@ -371,57 +433,61 @@ export default function AdminPanel({ adminEmail }: { adminEmail: string }) {
     load()
   }
 
-  // ── Filtered table data ───────────────────────────────────────────────────
+  // ── Filtered list ─────────────────────────────────────────────────────────
 
-  const filtered = questions.filter(
-    (q) =>
-      (filterTopic === 'all' || q.topic === filterTopic) &&
-      (filterDiff === 'all' || q.difficulty === filterDiff)
-  )
+  const filtered = questions.filter((q) => {
+    if (filterType  !== 'all' && q.question_type !== filterType)  return false
+    if (filterTopic !== 'all' && q.topic          !== filterTopic) return false
+    if (filterDiff  !== 'all' && q.difficulty     !== filterDiff)  return false
+    return true
+  })
 
-  const validCSVRows = csvRows?.filter((r) => r.valid) ?? []
+  // Hide topic filter when showing only behavioral
+  const showTopicFilter = filterType !== 'behavioral'
+
+  const validCSVRows   = csvRows?.filter((r) => r.valid) ?? []
   const invalidCSVRows = csvRows?.filter((r) => !r.valid) ?? []
 
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-n9">
       {/* Header */}
-      <header className="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between">
+      <header className="bg-n8 border-b border-n7 px-8 py-4 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Link href="/dashboard" className="text-slate-400 hover:text-slate-600 transition-colors">
+          <Link href="/dashboard" className="text-muted hover:text-white transition-colors">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
             </svg>
           </Link>
           <div>
-            <h1 className="text-base font-semibold text-slate-900">Question Admin</h1>
-            <p className="text-xs text-slate-400">{adminEmail}</p>
+            <h1 className="text-base font-semibold text-white">Question Admin</h1>
+            <p className="text-xs text-muted">{adminEmail}</p>
           </div>
         </div>
-        <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
+        <span className="text-xs font-medium text-muted bg-n7 px-2.5 py-1 rounded-full">
           {questions.length} questions
         </span>
       </header>
 
-      <div className="max-w-5xl mx-auto px-8 py-8 space-y-8">
+      <div className="max-w-5xl mx-auto px-8 py-8 space-y-6">
 
-        {/* ── Add Question card ──────────────────────────────────────────── */}
-        <div className="bg-white rounded-xl border border-slate-200">
-          <div className="px-6 py-4 border-b border-slate-100">
-            <h2 className="text-sm font-semibold text-slate-900">Add Question</h2>
+        {/* ── Add Question ───────────────────────────────────────────────── */}
+        <div className="bg-n8 rounded-xl border border-n7">
+          <div className="px-6 py-4 border-b border-n7">
+            <h2 className="text-sm font-semibold text-white">Add Question</h2>
           </div>
 
           {/* Tabs */}
-          <div className="flex border-b border-slate-100">
+          <div className="flex border-b border-n7">
             {(['manual', 'csv'] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => setAddTab(t)}
                 className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
                   addTab === t
-                    ? 'border-indigo-600 text-indigo-600'
-                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                    ? 'border-gold text-gold'
+                    : 'border-transparent text-muted hover:text-white'
                 }`}
               >
                 {t === 'manual' ? 'Manual Entry' : 'Import CSV'}
@@ -438,12 +504,12 @@ export default function AdminPanel({ adminEmail }: { adminEmail: string }) {
                   <button
                     type="submit"
                     disabled={saving}
-                    className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+                    className="px-4 py-2 text-sm font-semibold text-n9 bg-gold rounded-lg hover:bg-gold2 disabled:opacity-60 transition-colors"
                   >
                     {saving ? 'Adding…' : 'Add Question'}
                   </button>
                   {saveMsg && (
-                    <span className={`text-sm ${saveMsg.startsWith('Error') ? 'text-red-600' : 'text-emerald-600'}`}>
+                    <span className={`text-sm ${saveMsg.startsWith('Error') ? 'text-neg' : 'text-pos'}`}>
                       {saveMsg}
                     </span>
                   )}
@@ -455,24 +521,29 @@ export default function AdminPanel({ adminEmail }: { adminEmail: string }) {
             {addTab === 'csv' && (
               <div className="space-y-5">
                 {/* Instructions */}
-                <div className="bg-slate-50 rounded-lg px-4 py-3 text-xs text-slate-500 space-y-1">
-                  <p className="font-medium text-slate-600">Expected CSV columns (header row required):</p>
-                  <p><code className="font-mono bg-white px-1 rounded border border-slate-200">question, answer, topic, difficulty</code></p>
-                  <p className="mt-1">
-                    Valid topics: {TOPICS.join(', ')}
-                    <br />
-                    Valid difficulties: {DIFFICULTIES.join(', ')}
+                <div className="bg-n9 rounded-lg px-4 py-3 border border-n7 text-xs text-muted space-y-2">
+                  <p className="font-medium text-white">Expected CSV columns (header row required):</p>
+                  <p>
+                    <code className="font-mono text-gold">question_type, topic, difficulty, question, answer</code>
+                  </p>
+                  <div className="space-y-1 pt-1">
+                    <p><span className="text-white">question_type:</span> behavioral | technical</p>
+                    <p><span className="text-white">topic:</span> (leave empty for behavioral) accounting | valuation | dcf | lbo | ma | restructuring | financial_markets</p>
+                    <p><span className="text-white">difficulty:</span> (technical only) easy | medium | advanced — leave empty for behavioral</p>
+                  </div>
+                  <p className="pt-1 text-muted/70">
+                    Tip: Wrap fields containing commas in double quotes. Escape internal quotes by doubling them.
                   </p>
                 </div>
 
                 {/* File input */}
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">CSV File</label>
+                  <label className={labelCls}>CSV File</label>
                   <input
                     type="file"
                     accept=".csv,text/csv"
                     onChange={handleFileChange}
-                    className="block text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-slate-200 file:text-xs file:font-medium file:text-slate-600 file:bg-white hover:file:bg-slate-50 file:cursor-pointer"
+                    className="block text-sm text-muted file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-n7 file:text-xs file:font-medium file:text-muted file:bg-n8 hover:file:bg-n6 file:cursor-pointer transition"
                   />
                 </div>
 
@@ -480,35 +551,37 @@ export default function AdminPanel({ adminEmail }: { adminEmail: string }) {
                 {csvRows !== null && (
                   <div className="space-y-3">
                     <div className="flex items-center gap-3 text-sm">
-                      <span className="font-medium text-slate-800">{csvFileName}</span>
-                      <span className="text-emerald-600">{validCSVRows.length} valid</span>
+                      <span className="font-medium text-white">{csvFileName}</span>
+                      <span className="text-pos">{validCSVRows.length} valid</span>
                       {invalidCSVRows.length > 0 && (
-                        <span className="text-red-500">{invalidCSVRows.length} invalid (will be skipped)</span>
+                        <span className="text-neg">{invalidCSVRows.length} invalid (will be skipped)</span>
                       )}
                     </div>
 
                     {csvRows.length > 0 && (
-                      <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-200">
+                      <div className="max-h-64 overflow-y-auto rounded-lg border border-n7">
                         <table className="w-full text-xs">
-                          <thead className="bg-slate-50 sticky top-0">
+                          <thead className="bg-n9 sticky top-0">
                             <tr>
-                              <th className="text-left text-slate-400 font-medium px-3 py-2 w-6">#</th>
-                              <th className="text-left text-slate-400 font-medium px-3 py-2">Question</th>
-                              <th className="text-left text-slate-400 font-medium px-3 py-2 w-28">Topic</th>
-                              <th className="text-left text-slate-400 font-medium px-3 py-2 w-24">Difficulty</th>
-                              <th className="text-left text-slate-400 font-medium px-3 py-2 w-8" />
+                              <th className="text-left text-muted font-medium px-3 py-2 w-6">#</th>
+                              <th className="text-left text-muted font-medium px-3 py-2">Question</th>
+                              <th className="text-left text-muted font-medium px-3 py-2 w-24">Type</th>
+                              <th className="text-left text-muted font-medium px-3 py-2 w-28">Topic</th>
+                              <th className="text-left text-muted font-medium px-3 py-2 w-24">Difficulty</th>
+                              <th className="text-left text-muted font-medium px-3 py-2 w-8" />
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-50">
+                          <tbody className="divide-y divide-n7">
                             {csvRows.map((row, i) => (
-                              <tr key={i} className={row.valid ? '' : 'bg-red-50'}>
-                                <td className="px-3 py-2 text-slate-400">{i + 1}</td>
-                                <td className="px-3 py-2 text-slate-700 max-w-xs truncate">{row.question || '—'}</td>
-                                <td className="px-3 py-2 text-slate-500">{row.topic || '—'}</td>
-                                <td className="px-3 py-2 text-slate-500">{row.difficulty || '—'}</td>
+                              <tr key={i} className={row.valid ? '' : 'bg-neg/5'}>
+                                <td className="px-3 py-2 text-muted">{i + 1}</td>
+                                <td className="px-3 py-2 text-white max-w-xs truncate">{row.question || '—'}</td>
+                                <td className="px-3 py-2 text-muted">{row.question_type || '—'}</td>
+                                <td className="px-3 py-2 text-muted">{row.topic || '—'}</td>
+                                <td className="px-3 py-2 text-muted">{row.difficulty || '—'}</td>
                                 <td className="px-3 py-2">
                                   {!row.valid && (
-                                    <span title={row.errors.join('; ')} className="text-red-500 cursor-help">✕</span>
+                                    <span title={row.errors.join('; ')} className="text-neg cursor-help">✕</span>
                                   )}
                                 </td>
                               </tr>
@@ -522,12 +595,14 @@ export default function AdminPanel({ adminEmail }: { adminEmail: string }) {
                       <button
                         onClick={handleCSVImport}
                         disabled={importing || validCSVRows.length === 0}
-                        className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+                        className="px-4 py-2 text-sm font-semibold text-n9 bg-gold rounded-lg hover:bg-gold2 disabled:opacity-60 transition-colors"
                       >
-                        {importing ? 'Importing…' : `Import ${validCSVRows.length} Question${validCSVRows.length !== 1 ? 's' : ''}`}
+                        {importing
+                          ? 'Importing…'
+                          : `Import ${validCSVRows.length} Question${validCSVRows.length !== 1 ? 's' : ''}`}
                       </button>
                       {importMsg && (
-                        <span className={`text-sm ${importMsg.startsWith('Error') ? 'text-red-600' : 'text-emerald-600'}`}>
+                        <span className={`text-sm ${importMsg.startsWith('Error') ? 'text-neg' : 'text-pos'}`}>
                           {importMsg}
                         </span>
                       )}
@@ -540,31 +615,44 @@ export default function AdminPanel({ adminEmail }: { adminEmail: string }) {
         </div>
 
         {/* ── Question Bank ──────────────────────────────────────────────── */}
-        <div className="bg-white rounded-xl border border-slate-200">
-          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-900">
+        <div className="bg-n8 rounded-xl border border-n7">
+          <div className="px-6 py-4 border-b border-n7 flex items-start justify-between gap-4">
+            <h2 className="text-sm font-semibold text-white pt-0.5">
               Question Bank
               {!loading && (
-                <span className="ml-2 text-xs font-normal text-slate-400">
+                <span className="ml-2 text-xs font-normal text-muted">
                   {filtered.length}{filtered.length !== questions.length ? ` of ${questions.length}` : ''} questions
                 </span>
               )}
             </h2>
 
             {/* Filters */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap justify-end">
               <select
-                value={filterTopic}
-                onChange={(e) => setFilterTopic(e.target.value as Topic | 'all')}
-                className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                value={filterType}
+                onChange={(e) => {
+                  setFilterType(e.target.value as QuestionType | 'all')
+                  setFilterTopic('all')
+                }}
+                className="text-xs px-2.5 py-1.5 rounded-lg border border-n7 bg-n9 text-muted focus:outline-none focus:ring-1 focus:ring-gold focus:border-gold"
               >
-                <option value="all">All Topics</option>
-                {TOPICS.map((t) => <option key={t} value={t}>{TOPIC_LABELS[t]}</option>)}
+                <option value="all">All Types</option>
+                {QUESTION_TYPES.map((t) => <option key={t} value={t}>{QUESTION_TYPE_LABELS[t]}</option>)}
               </select>
+              {showTopicFilter && (
+                <select
+                  value={filterTopic}
+                  onChange={(e) => setFilterTopic(e.target.value as Topic | 'all')}
+                  className="text-xs px-2.5 py-1.5 rounded-lg border border-n7 bg-n9 text-muted focus:outline-none focus:ring-1 focus:ring-gold focus:border-gold"
+                >
+                  <option value="all">All Topics</option>
+                  {TOPICS.map((t) => <option key={t} value={t}>{TOPIC_LABELS[t]}</option>)}
+                </select>
+              )}
               <select
                 value={filterDiff}
                 onChange={(e) => setFilterDiff(e.target.value as Difficulty | 'all')}
-                className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="text-xs px-2.5 py-1.5 rounded-lg border border-n7 bg-n9 text-muted focus:outline-none focus:ring-1 focus:ring-gold focus:border-gold"
               >
                 <option value="all">All Difficulties</option>
                 {DIFFICULTIES.map((d) => <option key={d} value={d}>{DIFFICULTY_LABELS[d]}</option>)}
@@ -573,9 +661,9 @@ export default function AdminPanel({ adminEmail }: { adminEmail: string }) {
           </div>
 
           {loading ? (
-            <div className="flex items-center justify-center py-16 text-sm text-slate-400">Loading…</div>
+            <div className="flex items-center justify-center py-16 text-sm text-muted">Loading…</div>
           ) : filtered.length === 0 ? (
-            <div className="flex items-center justify-center py-16 text-sm text-slate-400">
+            <div className="flex items-center justify-center py-16 text-sm text-muted">
               {questions.length === 0
                 ? 'No questions yet. Add one above or import a CSV.'
                 : 'No questions match the selected filters.'}
@@ -584,36 +672,53 @@ export default function AdminPanel({ adminEmail }: { adminEmail: string }) {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="text-left text-xs font-medium text-slate-400 px-4 py-3">Question</th>
-                    <th className="text-left text-xs font-medium text-slate-400 px-4 py-3 w-32">Topic</th>
-                    <th className="text-left text-xs font-medium text-slate-400 px-4 py-3 w-28">Difficulty</th>
+                  <tr className="border-b border-n7">
+                    <th className="text-left text-xs font-medium text-muted uppercase tracking-wider px-4 py-3">Question</th>
+                    <th className="text-left text-xs font-medium text-muted uppercase tracking-wider px-4 py-3 w-28">Type</th>
+                    <th className="text-left text-xs font-medium text-muted uppercase tracking-wider px-4 py-3 w-32">Topic</th>
+                    <th className="text-left text-xs font-medium text-muted uppercase tracking-wider px-4 py-3 w-28">Difficulty</th>
                     <th className="px-4 py-3 w-24" />
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {filtered.map((q) => (
-                    <tr key={q.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-4 py-3 text-slate-800 max-w-md">
+                <tbody>
+                  {filtered.map((q, i) => (
+                    <tr
+                      key={q.id}
+                      className={`border-b border-n7/50 hover:bg-n6 transition-colors ${i % 2 === 0 ? 'bg-n8' : 'bg-n9/20'}`}
+                    >
+                      <td className="px-4 py-3 text-white max-w-md">
                         <span className="line-clamp-2 leading-snug">{q.question}</span>
                       </td>
                       <td className="px-4 py-3">
-                        <Badge className={TOPIC_BADGE[q.topic]}>{TOPIC_LABELS[q.topic]}</Badge>
+                        <Badge className={TYPE_BADGE[q.question_type]}>
+                          {QUESTION_TYPE_LABELS[q.question_type]}
+                        </Badge>
                       </td>
                       <td className="px-4 py-3">
-                        <Badge className={DIFFICULTY_BADGE[q.difficulty]}>{DIFFICULTY_LABELS[q.difficulty]}</Badge>
+                        {q.topic ? (
+                          <Badge className={TOPIC_BADGE[q.topic]}>{TOPIC_LABELS[q.topic]}</Badge>
+                        ) : (
+                          <span className="text-muted/40 text-xs">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {q.difficulty ? (
+                          <Badge className={DIFFICULTY_BADGE[q.difficulty]}>{DIFFICULTY_LABELS[q.difficulty]}</Badge>
+                        ) : (
+                          <span className="text-muted/40 text-xs">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-2">
                           <button
                             onClick={() => openEdit(q)}
-                            className="text-xs text-slate-500 hover:text-slate-900 px-2.5 py-1 rounded border border-slate-200 hover:border-slate-300 transition"
+                            className="text-xs text-muted hover:text-white px-2.5 py-1 rounded border border-n7 hover:border-n5 transition"
                           >
                             Edit
                           </button>
                           <button
                             onClick={() => handleDelete(q.id)}
-                            className="text-xs text-red-500 hover:text-red-700 px-2.5 py-1 rounded border border-red-100 hover:border-red-200 transition"
+                            className="text-xs text-neg/70 hover:text-neg px-2.5 py-1 rounded border border-neg/20 hover:border-neg/40 transition"
                           >
                             Delete
                           </button>
@@ -628,7 +733,7 @@ export default function AdminPanel({ adminEmail }: { adminEmail: string }) {
         </div>
       </div>
 
-      {/* ── Edit Modal ────────────────────────────────────────────────────── */}
+      {/* ── Edit Modal ─────────────────────────────────────────────────────── */}
       {editing && (
         <Modal title="Edit Question" onClose={() => setEditing(null)}>
           <form onSubmit={handleEditSave}>
@@ -637,14 +742,14 @@ export default function AdminPanel({ adminEmail }: { adminEmail: string }) {
               <button
                 type="button"
                 onClick={() => setEditing(null)}
-                className="px-4 py-2 text-sm font-medium text-slate-600 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+                className="px-4 py-2 text-sm font-medium text-muted rounded-lg border border-n7 hover:bg-n6 hover:text-white transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={editSaving}
-                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+                className="px-4 py-2 text-sm font-semibold text-n9 bg-gold rounded-lg hover:bg-gold2 disabled:opacity-60 transition-colors"
               >
                 {editSaving ? 'Saving…' : 'Save Changes'}
               </button>

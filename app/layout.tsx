@@ -1,15 +1,15 @@
 import type { Metadata } from 'next'
-import { Geist } from 'next/font/google'
+import { Inter } from 'next/font/google'
 import './globals.css'
 
-const geist = Geist({
-  variable: '--font-geist-sans',
+const inter = Inter({
+  variable: '--font-inter',
   subsets: ['latin'],
 })
 
 export const metadata: Metadata = {
-  title: 'RecruitCRM',
-  description: 'Your recruiting networking tracker',
+  title: 'RecruitBanking',
+  description: 'Your investment banking recruiting platform',
 }
 
 export default function RootLayout({
@@ -18,7 +18,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`${geist.variable} h-full`}>
+    <html lang="en" className={`${inter.variable} h-full`}>
       <body className="h-full font-sans antialiased">{children}</body>
     </html>
   )

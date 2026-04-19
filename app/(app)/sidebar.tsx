@@ -19,7 +19,7 @@ const navItems = [
   },
   {
     href: '/contacts',
-    label: 'Contacts',
+    label: 'CRM',
     icon: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
@@ -34,15 +34,6 @@ const navItems = [
     icon: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M3 21h18M3 7l9-4 9 4M4 7v14M20 7v14M8 11v4M12 11v4M16 11v4" />
-      </svg>
-    ),
-  },
-  {
-    href: '/reminders',
-    label: 'Reminders',
-    icon: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15 17H9m6 0a6 6 0 10-12 0m12 0h3l1.5 2H2.5L4 17h5M13 17V9a1 1 0 00-1-1h0a1 1 0 00-1 1v8" />
       </svg>
     ),
   },
@@ -81,28 +72,28 @@ export default function Sidebar({ userEmail }: { userEmail: string }) {
   }
 
   return (
-    <aside className="w-56 shrink-0 border-r border-slate-200 bg-white flex flex-col h-full">
+    <aside className="w-60 shrink-0 border-r border-n7 bg-n9 flex flex-col h-full">
       {/* Logo */}
-      <div className="px-5 py-5 border-b border-slate-100">
-        <p className="text-base font-semibold text-slate-900 tracking-tight">RecruitCRM</p>
-        <p className="text-xs text-slate-400 mt-0.5">Networking tracker</p>
+      <div className="px-5 py-5 border-b border-n7">
+        <p className="text-base font-bold text-gold tracking-tight">RecruitBanking</p>
+        <p className="text-xs text-muted mt-0.5">IB Recruiting Platform</p>
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-3 py-4 space-y-0.5">
+      <nav className="flex-1 py-4 space-y-0.5">
         {navItems.map(({ href, label, icon }) => {
-          const active = pathname === href
+          const active = pathname === href || (href !== '/dashboard' && pathname.startsWith(href))
           return (
             <Link
               key={href}
               href={href}
-              className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+              className={`flex items-center gap-3 pl-5 pr-3 py-2.5 text-sm font-medium transition-colors border-l-2 ${
                 active
-                  ? 'bg-indigo-50 text-indigo-700'
-                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  ? 'border-gold bg-n5 text-white'
+                  : 'border-transparent text-muted hover:bg-n6 hover:text-white'
               }`}
             >
-              <span className={active ? 'text-indigo-600' : 'text-slate-400'}>{icon}</span>
+              <span className={active ? 'text-gold' : 'text-muted'}>{icon}</span>
               {label}
             </Link>
           )
@@ -110,11 +101,11 @@ export default function Sidebar({ userEmail }: { userEmail: string }) {
       </nav>
 
       {/* User */}
-      <div className="px-3 py-4 border-t border-slate-100">
-        <p className="text-xs text-slate-400 truncate px-3 mb-1">{userEmail}</p>
+      <div className="px-3 py-4 border-t border-n7">
+        <p className="text-xs text-muted truncate px-3 mb-1">{userEmail}</p>
         <button
           onClick={handleSignOut}
-          className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-500 rounded-lg hover:bg-slate-50 hover:text-slate-900 transition-colors"
+          className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-muted rounded-lg hover:bg-n6 hover:text-white transition-colors"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />

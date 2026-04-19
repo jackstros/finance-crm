@@ -26,7 +26,7 @@ create table public.firms (
   user_id uuid references auth.users(id) on delete cascade not null,
   firm_name text not null,
   role text,
-  status text check (status in ('researching', 'applied', 'interview', 'offer', 'rejected')) default 'researching' not null,
+  status text check (status in ('prospective', 'applied', 'interview', 'offer', 'rejected')) default 'prospective' not null,
   interview_notes text,
   last_contacted date,
   created_at timestamptz default now(),
