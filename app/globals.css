@@ -27,8 +27,8 @@
 
 /* ── Base ─────────────────────────────────────────────────────────────────── */
 html, body {
-  background-color: #0A1628;
-  color: #ffffff;
+  background-color: #f8fafc;
+  color: #1e293b;
 }
 
 /*
@@ -89,37 +89,8 @@ html, body {
  * by default. Override so form elements match the dark theme even when
  * custom bg-* classes don't apply (e.g. inside a shadow DOM or browser quirk).
  */
-input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
-textarea,
-select {
-  background-color: #0A1628;
-  color: #ffffff;
-  border-color: #1E3A5F;
-}
-
-input::placeholder,
-textarea::placeholder {
-  color: #8A9BB5;
-  opacity: 0.5;
-}
-
-/* Select option elements (browser-native, limited styling) */
-option {
-  background-color: #0F1F3D;
-  color: #ffffff;
-}
-
 /* Scrollbar styling */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #0A1628; }
-::-webkit-scrollbar-thumb { background: #1E3A5F; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #2A4A6B; }
-
-/* Input autofill */
-input:-webkit-autofill,
-input:-webkit-autofill:hover,
-input:-webkit-autofill:focus {
-  -webkit-box-shadow: 0 0 0px 1000px #0F1F3D inset;
-  -webkit-text-fill-color: #ffffff;
-  caret-color: #ffffff;
-}
+::-webkit-scrollbar-track { background: #f1f5f9; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
