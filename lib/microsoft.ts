@@ -9,6 +9,7 @@ const AUTH_ENDPOINT  = 'https://login.microsoftonline.com/common/oauth2/v2.0/aut
 const SCOPES = [
   'https://graph.microsoft.com/Mail.Read',
   'https://graph.microsoft.com/Mail.ReadBasic',
+  'https://graph.microsoft.com/Calendars.ReadWrite',
   'https://graph.microsoft.com/User.Read',
   'offline_access',
 ].join(' ')
@@ -66,8 +67,8 @@ export async function getValidToken(
   if (!row) return null
 
   // Supabase returns bigint columns as strings — Number() converts safely
-  const expiresAt   = Number(row.expires_at)
-  const nowPlusBuf  = Date.now() + 60_000 // 1-min buffer
+  const expiresAt  = Number(row.expires_at)
+  const nowPlusBuf = Date.now() + 60_000 // 1-min buffer
 
   if (expiresAt > nowPlusBuf) return row.access_token as string
 
@@ -88,6 +89,8 @@ export async function getValidToken(
     return null
   }
 }
+
+// ── Email ─────────────────────────────────────────────────────────────────────
 
 export interface GraphEmail {
   id:               string
@@ -125,4 +128,103 @@ export async function fetchMicrosoftEmail(accessToken: string): Promise<string |
   } catch {
     return null
   }
+}
+
+// ── Calendar ──────────────────────────────────────────────────────────────────
+
+export interface GraphCalendarEvent {
+  id:          string
+  subject:     string
+  start:       { dateTime: string; timeZone: string }
+  end:         { dateTime: string; timeZone: string }
+  location?:   { displayName: string }
+  organizer:   { emailAddress: { address: string; name: string } }
+  attendees:   Array<{ emailAddress: { address: string; name: string }; type: string }>
+  bodyPreview: string
+  isCancelled?: boolean
+}
+
+// Fetch events in a date window using calendarView (expands recurring events)
+export async function fetchCalendarEvents(
+  accessToken: string,
+  from: Date,
+  to: Date,
+): Promise<GraphCalendarEvent[]> {
+  const start = from.toISOString()
+  const end   = to.toISOString()
+  // startDateTime/endDateTime are plain params (no $), safe with URLSearchParams
+  // $top and $select use $ prefix — build manually to avoid %24 encoding
+  const url =
+    `https://graph.microsoft.com/v1.0/me/calendarView` +
+    `?startDateTime=${encodeURIComponent(start)}` +
+    `&endDateTime=${encodeURIComponent(end)}` +
+    `&$top=200` +
+    `&$select=id,subject,start,end,location,organizer,attendees,bodyPreview,isCancelled`
+
+  console.log('[microsoft/fetchCalendarEvents] URL:', url)
+  const res = await fetch(url, {
+    headers: {
+      Authorization:  `Bearer ${accessToken}`,
+      'Prefer':       'outlook.timezone="UTC"',
+    },
+  })
+  if (!res.ok) {
+    const body = await res.text()
+    console.error('[microsoft/fetchCalendarEvents] Error:', res.status, body)
+    if (res.status === 403) throw new Error('calendar_scope_missing')
+    throw new Error(`Graph calendarView error ${res.status}: ${body}`)
+  }
+  const data = await res.json()
+  console.log('[microsoft/fetchCalendarEvents] Received', data.value?.length ?? 0, 'events')
+  return (data.value ?? []) as GraphCalendarEvent[]
+}
+
+export interface CreateEventPayload {
+  subject:    string
+  startTime:  string  // ISO UTC
+  endTime:    string  // ISO UTC
+  location?:  string
+  notes?:     string
+  attendees?: Array<{ address: string; name: string }>
+}
+
+export async function createOutlookEvent(
+  accessToken: string,
+  payload: CreateEventPayload,
+): Promise<{ id: string }> {
+  const body: Record<string, unknown> = {
+    subject: payload.subject,
+    start:   { dateTime: payload.startTime, timeZone: 'UTC' },
+    end:     { dateTime: payload.endTime,   timeZone: 'UTC' },
+  }
+  if (payload.location) {
+    body.location = { displayName: payload.location }
+  }
+  if (payload.notes) {
+    body.body = { contentType: 'text', content: payload.notes }
+  }
+  if (payload.attendees?.length) {
+    body.attendees = payload.attendees.map((a) => ({
+      emailAddress: { address: a.address, name: a.name },
+      type: 'required',
+    }))
+  }
+
+  console.log('[microsoft/createOutlookEvent] Creating event:', payload.subject)
+  const res = await fetch('https://graph.microsoft.com/v1.0/me/events', {
+    method:  'POST',
+    headers: {
+      Authorization:  `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const errBody = await res.text()
+    console.error('[microsoft/createOutlookEvent] Error:', res.status, errBody)
+    throw new Error(`Failed to create Outlook event: ${errBody}`)
+  }
+  const created = await res.json()
+  console.log('[microsoft/createOutlookEvent] Created, id:', created.id)
+  return { id: created.id }
 }

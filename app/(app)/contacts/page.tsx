@@ -3,6 +3,30 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
+// ── Outreach email types ──────────────────────────────────────────────────────
+
+type OutreachEmail = {
+  id:          string
+  to_email:    string
+  to_name:     string | null
+  subject:     string
+  received_at: string
+  body_text:    string | null
+  body_preview: string | null
+  web_link:     string | null
+  contact_id:   string | null
+  contacts:    { id: string; name: string; firm: string | null; outreach_status: string } | null
+}
+
+type ReplyEmail = {
+  id:          string
+  subject:     string
+  from_email:  string | null
+  received_at: string | null
+  body_text:   string | null
+  body_preview: string | null
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const OUTREACH_STATUSES = [
@@ -408,6 +432,125 @@ function LogFollowUpModal({ contact, onClose, onSaved }: { contact: Contact; onC
   )
 }
 
+// ── Push to Calendar Modal ────────────────────────────────────────────────────
+
+function PushToCalendarModal({ contact, onClose }: { contact: Contact; onClose: () => void }) {
+  const today = new Date()
+  const defaultDate = today.toISOString().slice(0, 10)
+  const [subject,   setSubject]   = useState(`Coffee Chat — ${contact.name}${contact.firm ? ` (${contact.firm})` : ''}`)
+  const [date,      setDate]      = useState(defaultDate)
+  const [startHour, setStartHour] = useState('09')
+  const [startMin,  setStartMin]  = useState('00')
+  const [endHour,   setEndHour]   = useState('10')
+  const [endMin,    setEndMin]    = useState('00')
+  const [location,  setLocation]  = useState('')
+  const [pushing,   setPushing]   = useState(false)
+  const [done,      setDone]      = useState(false)
+  const [err,       setErr]       = useState<string | null>(null)
+
+  const hours = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
+  const mins  = ['00', '15', '30', '45']
+
+  async function handlePush(e: React.FormEvent) {
+    e.preventDefault()
+    setPushing(true)
+    setErr(null)
+    try {
+      const startTime = `${date}T${startHour}:${startMin}:00`
+      const endTime   = `${date}T${endHour}:${endMin}:00`
+      const attendees = contact.email ? [{ address: contact.email, name: contact.name }] : []
+      const res = await fetch('/api/calendar/events', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject, startTime, endTime, location: location || undefined, contactId: contact.id, attendees }),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        setErr(d.error ?? 'Failed to create event')
+      } else {
+        setDone(true)
+      }
+    } catch {
+      setErr('Network error')
+    } finally {
+      setPushing(false)
+    }
+  }
+
+  const selStyle: React.CSSProperties = { flex: 1, padding: '8px 8px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 13, color: '#0f172a', outline: 'none' }
+
+  if (done) {
+    return (
+      <Modal title="Added to Calendar" onClose={onClose}>
+        <div style={{ textAlign: 'center', padding: '24px 0' }}>
+          <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#f0fdfa', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
+            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="#0d9488" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+          </div>
+          <p style={{ fontSize: 14, fontWeight: 600, color: '#0f172a', margin: '0 0 4px' }}>Event created in Outlook</p>
+          <p style={{ fontSize: 13, color: '#64748b', margin: 0 }}>The calendar event has been pushed to your Outlook calendar.</p>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
+          <button onClick={onClose} style={{ padding: '8px 16px', fontSize: 13, fontWeight: 500, color: '#64748b', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer' }}>Close</button>
+        </div>
+      </Modal>
+    )
+  }
+
+  return (
+    <Modal title="Push to Outlook Calendar" onClose={onClose}>
+      <form onSubmit={handlePush} style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
+        <div>
+          <FieldLabel>Subject</FieldLabel>
+          <input required value={subject} onChange={(e) => setSubject(e.target.value)} style={{ ...inputStyle }} />
+        </div>
+        <div>
+          <FieldLabel>Date</FieldLabel>
+          <input required type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inputStyle }} />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div>
+            <FieldLabel>Start time</FieldLabel>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <select value={startHour} onChange={(e) => setStartHour(e.target.value)} style={selStyle}>
+                {hours.map((h) => <option key={h} value={h}>{h}</option>)}
+              </select>
+              <select value={startMin} onChange={(e) => setStartMin(e.target.value)} style={selStyle}>
+                {mins.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <FieldLabel>End time</FieldLabel>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <select value={endHour} onChange={(e) => setEndHour(e.target.value)} style={selStyle}>
+                {hours.map((h) => <option key={h} value={h}>{h}</option>)}
+              </select>
+              <select value={endMin} onChange={(e) => setEndMin(e.target.value)} style={selStyle}>
+                {mins.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div>
+          <FieldLabel>Location (optional)</FieldLabel>
+          <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Zoom link, office address…" style={{ ...inputStyle }} />
+        </div>
+        {err && <p style={{ fontSize: 13, color: '#ef4444', margin: 0 }}>{err}</p>}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 4 }}>
+          <button type="button" onClick={onClose}
+            style={{ padding: '8px 16px', fontSize: 13, fontWeight: 500, color: '#64748b', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer' }}>
+            Skip
+          </button>
+          <button type="submit" disabled={pushing}
+            style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600, color: '#fff', background: '#0d9488', border: 'none', borderRadius: 8, cursor: 'pointer', opacity: pushing ? 0.65 : 1 }}>
+            {pushing ? 'Pushing…' : 'Push to Calendar'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
 // ── Upcoming Chats Modal ──────────────────────────────────────────────────────
 
 function UpcomingChatsModal({ contacts, onClose }: { contacts: Contact[]; onClose: () => void }) {
@@ -477,6 +620,139 @@ function UpcomingChatsModal({ contacts, onClose }: { contacts: Contact[]; onClos
   )
 }
 
+// ── Outreach Detail Panel ─────────────────────────────────────────────────────
+
+function OutreachDetailPanel({
+  email,
+  replyEmail,
+  loadingReply,
+  onClose,
+}: {
+  email:        OutreachEmail
+  replyEmail:   ReplyEmail | null
+  loadingReply: boolean
+  onClose:      () => void
+}) {
+  const contact  = email.contacts
+  const name     = contact?.name ?? email.to_name ?? email.to_email.split('@')[0]
+  const status   = contact?.outreach_status ?? 'Email Sent'
+  const replied  = ['Responded', 'Call Scheduled', 'In-Person Chat', 'Following Up'].includes(status)
+  const sentDate = email.received_at
+    ? new Date(email.received_at).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : '—'
+  const initials = name.split(' ').map((w: string) => w[0] ?? '').join('').slice(0, 2).toUpperCase()
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        onClick={onClose}
+        style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.25)', zIndex: 200 }}
+      />
+      {/* Panel */}
+      <div style={{
+        position: 'fixed', top: 0, right: 0, bottom: 0,
+        width: 480, maxWidth: '100vw',
+        background: '#ffffff', borderLeft: '1px solid #e2e8f0',
+        boxShadow: '-8px 0 32px rgba(0,0,0,0.12)',
+        zIndex: 201, display: 'flex', flexDirection: 'column', overflowY: 'auto',
+      }}>
+        {/* Sticky header */}
+        <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'flex-start', gap: 12, position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 34, height: 34, borderRadius: '50%', background: replied ? '#f0fdfa' : '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: replied ? '#0d9488' : '#2563eb', flexShrink: 0 }}>
+                {initials}
+              </div>
+              <div>
+                <p style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', margin: 0 }}>{name}</p>
+                <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>{email.to_email}</p>
+              </div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 20, padding: '0 4px', lineHeight: 1, flexShrink: 0 }}>
+            &#x2715;
+          </button>
+        </div>
+
+        {/* Subject / date / status */}
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9' }}>
+          <p style={{ fontSize: 14, fontWeight: 600, color: '#0f172a', margin: '0 0 4px' }}>{email.subject}</p>
+          <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 10px' }}>{sentDate}</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {replied ? (
+              <span style={{ display: 'inline-block', padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0' }}>
+                {status}
+              </span>
+            ) : (
+              <span style={{ display: 'inline-block', padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: '#f8fafc', color: '#94a3b8', border: '1px solid #e2e8f0' }}>
+                Awaiting reply
+              </span>
+            )}
+            {contact?.firm && <span style={{ fontSize: 12, color: '#64748b' }}>{contact.firm}</span>}
+            {email.web_link && (
+              <a
+                href={email.web_link}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ fontSize: 12, color: '#0d9488', fontWeight: 500, textDecoration: 'none', marginLeft: 'auto' }}
+              >
+                Open in Outlook ↗
+              </a>
+            )}
+          </div>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: '16px 20px', flex: 1 }}>
+          <p style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.07em', margin: '0 0 10px' }}>
+            Your message
+          </p>
+          {email.body_text ? (
+            <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.65, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              {email.body_text.trim()}
+            </div>
+          ) : email.body_preview ? (
+            <>
+              <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
+                {email.body_preview}
+              </div>
+              <p style={{ fontSize: 11, color: '#cbd5e1', marginTop: 8 }}>Preview only — re-sync to load full body</p>
+            </>
+          ) : (
+            <p style={{ fontSize: 13, color: '#cbd5e1' }}>No message body available</p>
+          )}
+
+          {replied && (
+            <div style={{ marginTop: 24, paddingTop: 20, borderTop: '2px solid #f0fdfa' }}>
+              <p style={{ fontSize: 11, fontWeight: 600, color: '#0d9488', textTransform: 'uppercase', letterSpacing: '0.07em', margin: '0 0 10px' }}>
+                Their reply
+              </p>
+              {loadingReply ? (
+                <p style={{ fontSize: 13, color: '#94a3b8' }}>Loading…</p>
+              ) : replyEmail ? (
+                <>
+                  <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 8px' }}>
+                    {replyEmail.from_email}
+                    {replyEmail.received_at && (
+                      <> · {new Date(replyEmail.received_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</>
+                    )}
+                  </p>
+                  <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.65, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {(replyEmail.body_text ?? replyEmail.body_preview ?? '').trim() || 'No reply body available'}
+                  </div>
+                </>
+              ) : (
+                <p style={{ fontSize: 13, color: '#94a3b8' }}>Reply not yet synced — sync emails to load it</p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
+
 // ── Chat Cleanup ──────────────────────────────────────────────────────────────
 
 async function runChatCleanup(supabase: ReturnType<typeof createClient>): Promise<boolean> {
@@ -525,20 +801,147 @@ export default function ContactsPage() {
   const [editing, setEditing] = useState<Contact | null>(null)
   const [logFollowUp, setLogFollowUp] = useState<Contact | null>(null)
   const [showUpcomingChats, setShowUpcomingChats] = useState(false)
-  const [search, setSearch] = useState('')
+  const [pushContact,       setPushContact]       = useState<Contact | null>(null)
+  const [calendarConnected, setCalendarConnected] = useState(false)
+  const [search,            setSearch]            = useState('')
+
+  // Outreach tab
+  const [activeTab,         setActiveTab]         = useState<'contacts' | 'outreach'>('contacts')
+  const [outreachEmails,    setOutreachEmails]     = useState<OutreachEmail[]>([])
+  const [loadingOutreach,   setLoadingOutreach]    = useState(false)
+  const [syncing,           setSyncing]            = useState(false)
+  const [syncResult,        setSyncResult]         = useState<{ syncedSent: number; newContacts: number; statusUpdates: number } | null>(null)
+  const [syncError,         setSyncError]          = useState<string | null>(null)
+  const [outlookConnected,  setOutlookConnected]   = useState(false)
+  const [selectedOutreach, setSelectedOutreach]   = useState<OutreachEmail | null>(null)
+  const [replyEmail,       setReplyEmail]         = useState<ReplyEmail | null>(null)
+  const [loadingReply,     setLoadingReply]       = useState(false)
+  const [backfilling,      setBackfilling]        = useState(false)
+  const [backfillResult,   setBackfillResult]     = useState<{ updated: number } | null>(null)
+  const [hidingId,         setHidingId]           = useState<string | null>(null)
   const [followUps, setFollowUps] = useState<FollowUp[]>([])
   const [loadingFollowUps, setLoadingFollowUps] = useState(false)
 
   const load = useCallback(async () => {
     const cleaned = await runChatCleanup(supabase)
     if (cleaned) console.log('contacts/load: chat cleanup ran, reloading')
-    const { data } = await supabase.from('contacts').select('*').order('created_at', { ascending: false })
-    console.log('contacts/load: fetched', data?.length ?? 0, 'contacts')
-    setContacts((data ?? []) as Contact[])
+    const [contactsRes, tokenRes] = await Promise.all([
+      supabase.from('contacts').select('*').order('created_at', { ascending: false }),
+      supabase.from('microsoft_tokens').select('user_id').limit(1),
+    ])
+    console.log('contacts/load: fetched', contactsRes.data?.length ?? 0, 'contacts')
+    setContacts((contactsRes.data ?? []) as Contact[])
+    const connected = (tokenRes.data?.length ?? 0) > 0
+    setCalendarConnected(connected)
+    setOutlookConnected(connected)
     setLoading(false)
   }, [supabase])
 
+  const loadOutreachEmails = useCallback(async () => {
+    setLoadingOutreach(true)
+    const { data } = await supabase
+      .from('outlook_emails')
+      .select('id, to_email, to_name, subject, received_at, body_text, body_preview, web_link, contact_id, contacts(id, name, firm, outreach_status)')
+      .eq('direction', 'sent')
+      .eq('is_recruiting', true)
+      .order('received_at', { ascending: true }) // oldest first for dedup
+
+    // Deduplicate: first email per to_email (full address, not domain)
+    const seen = new Set<string>()
+    const firsts: OutreachEmail[] = []
+    for (const row of (data ?? []) as unknown as OutreachEmail[]) {
+      const key = row.to_email?.toLowerCase()
+      console.log(`[outreach/dedup] key="${key}" seen=${seen.has(key ?? '')} → ${seen.has(key ?? '') ? 'skip' : 'keep'}`)
+      if (key && !seen.has(key)) {
+        seen.add(key)
+        firsts.push(row)
+      }
+    }
+    // Show most recently first-contacted at top
+    firsts.sort((a, b) => new Date(b.received_at).getTime() - new Date(a.received_at).getTime())
+    setOutreachEmails(firsts)
+    setLoadingOutreach(false)
+  }, [supabase])
+
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (activeTab === 'outreach') loadOutreachEmails()
+  }, [activeTab, loadOutreachEmails])
+
+  // Fetch reply when a responded outreach is selected
+  useEffect(() => {
+    if (!selectedOutreach) { setReplyEmail(null); return }
+    const status = selectedOutreach.contacts?.outreach_status
+    const hasReply = status && ['Responded', 'Call Scheduled', 'In-Person Chat', 'Following Up'].includes(status)
+    if (!hasReply || !selectedOutreach.contact_id) { setReplyEmail(null); return }
+    setLoadingReply(true)
+    supabase
+      .from('outlook_emails')
+      .select('id, subject, from_email, received_at, body_text, body_preview')
+      .eq('direction', 'received')
+      .eq('contact_id', selectedOutreach.contact_id)
+      .order('received_at', { ascending: false })
+      .limit(1)
+      .single()
+      .then(({ data }) => {
+        setReplyEmail(data as ReplyEmail | null)
+        setLoadingReply(false)
+      })
+  }, [selectedOutreach]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Close slide-out panel on Escape
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setSelectedOutreach(null) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
+
+  async function handleHideOutreach(id: string) {
+    setHidingId(id)
+    try {
+      await fetch(`/api/emails/${id}/hide`, { method: 'POST' })
+      setOutreachEmails((prev) => prev.filter((oe) => oe.id !== id))
+      if (selectedOutreach?.id === id) setSelectedOutreach(null)
+    } finally {
+      setHidingId(null)
+    }
+  }
+
+  async function handleBackfillFirms() {
+    setBackfilling(true)
+    setBackfillResult(null)
+    try {
+      const res  = await fetch('/api/emails/backfill-firms', { method: 'POST' })
+      const data = await res.json()
+      if (res.ok) {
+        setBackfillResult(data)
+        await Promise.all([load(), loadOutreachEmails()])
+      }
+    } finally {
+      setBackfilling(false)
+    }
+  }
+
+  async function handleSyncEmails() {
+    setSyncing(true)
+    setSyncResult(null)
+    setSyncError(null)
+    try {
+      const res  = await fetch('/api/emails/sync', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) {
+        setSyncError(data.error ?? 'Sync failed')
+      } else {
+        setSyncResult(data)
+        await Promise.all([load(), loadOutreachEmails()])
+      }
+    } catch {
+      setSyncError('Network error during sync')
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   async function loadFollowUps(contactId: string) {
     setLoadingFollowUps(true)
@@ -574,6 +977,8 @@ export default function ContactsPage() {
         notes: form.notes || null,
       }
 
+      let savedContactForPush: Contact | null = null
+
       if (editing) {
         const updatePayload = chatIsInPast
           ? { ...payload, chats_completed: (editing.chats_completed ?? 0) + 1 }
@@ -587,6 +992,7 @@ export default function ContactsPage() {
             chat_date: new Date(chatDateParsed).toISOString().slice(0, 10),
           })
         }
+        savedContactForPush = { ...editing, ...payload, outreach_status: form.outreach_status } as Contact
       } else {
         const insertPayload = chatIsInPast ? { ...payload, chats_completed: 1 } : payload
         const { data: newContact, error } = await supabase
@@ -602,11 +1008,18 @@ export default function ContactsPage() {
             chat_date: new Date(chatDateParsed).toISOString().slice(0, 10),
           })
         }
+        if (newContact) {
+          savedContactForPush = { id: newContact.id, ...payload, outreach_status: form.outreach_status, total_follow_ups: 0, chats_completed: 0, last_contact_date: null, created_at: new Date().toISOString() } as Contact
+        }
       }
 
+      const wasCallScheduled = form.outreach_status === 'Call Scheduled'
       setShowModal(false)
       setEditing(null)
       await load()
+      if (wasCallScheduled && calendarConnected && savedContactForPush) {
+        setPushContact(savedContactForPush)
+      }
     } catch (e) {
       console.error('handleSave exception:', e)
     } finally {
@@ -653,9 +1066,9 @@ export default function ContactsPage() {
     <div style={{ padding: '32px', maxWidth: 1300, background: '#f8fafc', minHeight: '100%' }}>
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#0f172a', margin: 0, letterSpacing: '-0.01em' }}>Contacts</h1>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#0f172a', margin: 0, letterSpacing: '-0.01em' }}>Tracker</h1>
           <p style={{ fontSize: 13, color: '#64748b', marginTop: 4, marginBottom: 0 }}>Your networking contacts and outreach history</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -682,6 +1095,210 @@ export default function ContactsPage() {
           </button>
         </div>
       </div>
+
+      {/* Tab bar */}
+      <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '2px solid #e2e8f0' }}>
+        {(['contacts', 'outreach'] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            style={{
+              padding: '10px 20px',
+              fontSize: 13,
+              fontWeight: 600,
+              background: 'none',
+              border: 'none',
+              borderBottom: activeTab === tab ? '2px solid #0d9488' : '2px solid transparent',
+              marginBottom: -2,
+              color: activeTab === tab ? '#0d9488' : '#64748b',
+              cursor: 'pointer',
+              textTransform: 'capitalize',
+              transition: 'color 0.15s',
+            }}
+          >
+            {tab === 'contacts' ? 'Contacts' : 'Outreach'}
+          </button>
+        ))}
+      </div>
+
+      {/* ── OUTREACH TAB ──────────────────────────────────────────────────────── */}
+      {activeTab === 'outreach' && (
+        <div>
+          {/* Outreach header */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+            <p style={{ fontSize: 13, color: '#64748b', margin: 0, flex: 1 }}>
+              First recruiting emails you&apos;ve sent — auto-synced from Outlook.
+              When someone replies, they move to &quot;Responded&quot; status.
+            </p>
+            {outlookConnected ? (
+              <button
+                onClick={handleSyncEmails}
+                disabled={syncing}
+                style={{
+                  padding: '8px 16px', borderRadius: 8,
+                  border: '1px solid #e2e8f0', background: syncing ? '#f1f5f9' : '#fff',
+                  color: '#0f172a', fontSize: 13, fontWeight: 500,
+                  cursor: syncing ? 'default' : 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                {syncing ? 'Syncing…' : 'Sync Emails'}
+              </button>
+            ) : (
+              <a href="/settings" style={{ fontSize: 13, color: '#0d9488', fontWeight: 500, textDecoration: 'none' }}>
+                Connect Outlook to sync emails
+              </a>
+            )}
+          </div>
+
+          {/* Backfill firms button — shown when there are outreach emails without firms */}
+          {outreachEmails.some((oe) => !oe.contacts?.firm) && (
+            <button
+              onClick={handleBackfillFirms}
+              disabled={backfilling}
+              style={{
+                padding: '8px 14px', borderRadius: 8,
+                border: '1px solid #e2e8f0', background: backfilling ? '#f1f5f9' : '#fff',
+                color: '#64748b', fontSize: 12, fontWeight: 500,
+                cursor: backfilling ? 'default' : 'pointer',
+              }}
+            >
+              {backfilling ? 'Detecting firms…' : 'Detect Firms'}
+            </button>
+          )}
+
+          {syncResult && (
+            <div style={{ marginBottom: 14, padding: '10px 16px', background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: 8, fontSize: 13, color: '#0d9488' }}>
+              Synced {syncResult.syncedSent} outreach email{syncResult.syncedSent !== 1 ? 's' : ''}
+              {syncResult.newContacts > 0 && ` · ${syncResult.newContacts} new contact${syncResult.newContacts !== 1 ? 's' : ''} created`}
+              {syncResult.statusUpdates > 0 && ` · ${syncResult.statusUpdates} contact${syncResult.statusUpdates !== 1 ? 's' : ''} marked Responded`}
+            </div>
+          )}
+          {backfillResult && backfillResult.updated > 0 && (
+            <div style={{ marginBottom: 14, padding: '10px 16px', background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: 8, fontSize: 13, color: '#0d9488' }}>
+              Detected firms for {backfillResult.updated} contact{backfillResult.updated !== 1 ? 's' : ''}
+            </div>
+          )}
+          {syncError && (
+            <div style={{ marginBottom: 14, padding: '10px 16px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, fontSize: 13, color: '#dc2626' }}>
+              {syncError}
+            </div>
+          )}
+
+          {/* Outreach table */}
+          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+            {loadingOutreach ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '80px 0', color: '#94a3b8', fontSize: 13 }}>Loading…</div>
+            ) : outreachEmails.length === 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 0', textAlign: 'center' }}>
+                <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+                  <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="#94a3b8" strokeWidth={1.7}><path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                </div>
+                <p style={{ fontSize: 14, fontWeight: 500, color: '#374151', margin: '0 0 4px' }}>No outreach emails yet</p>
+                <p style={{ fontSize: 13, color: '#94a3b8', margin: 0 }}>Connect Outlook and sync to see recruiting emails you&apos;ve sent</p>
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto', borderRadius: 12 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      {['Person', 'Firm', 'Subject', 'Sent', 'Response', ''].map((h, i) => (
+                        <th key={i} style={{ padding: '11px 14px', textAlign: 'left', fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#94a3b8', whiteSpace: 'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {outreachEmails.map((oe, i) => {
+                      const contact  = oe.contacts
+                      const name     = contact?.name ?? oe.to_name ?? oe.to_email.split('@')[0]
+                      const firm     = contact?.firm ?? null
+                      const status   = contact?.outreach_status ?? 'Email Sent'
+                      const replied  = ['Responded', 'Call Scheduled', 'In-Person Chat', 'Following Up'].includes(status)
+                      const sentDate = oe.received_at
+                        ? new Date(oe.received_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                        : '—'
+
+                      return (
+                        <tr
+                          key={oe.id}
+                          onClick={() => setSelectedOutreach(oe)}
+                          style={{ borderBottom: i < outreachEmails.length - 1 ? '1px solid #f8fafc' : 'none', cursor: 'pointer' }}
+                          onMouseEnter={(e) => (e.currentTarget as HTMLElement).style.background = '#f8fafc'}
+                          onMouseLeave={(e) => (e.currentTarget as HTMLElement).style.background = 'transparent'}
+                        >
+                          <td style={{ padding: '11px 14px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <div style={{ width: 30, height: 30, borderRadius: '50%', background: replied ? '#f0fdfa' : '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: replied ? '#0d9488' : '#2563eb', flexShrink: 0 }}>
+                                {name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()}
+                              </div>
+                              <div style={{ minWidth: 0 }}>
+                                <p style={{ fontWeight: 500, color: '#0f172a', margin: 0, whiteSpace: 'nowrap' }}>{name}</p>
+                                <p style={{ fontSize: 11, color: '#94a3b8', margin: 0, whiteSpace: 'nowrap' }}>{oe.to_email}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td style={{ padding: '11px 14px', color: firm ? '#0f172a' : '#cbd5e1', whiteSpace: 'nowrap' }}>
+                            {firm ?? '—'}
+                          </td>
+                          <td style={{ padding: '11px 14px', color: '#64748b', maxWidth: 280 }}>
+                            <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {oe.subject}
+                            </span>
+                          </td>
+                          <td style={{ padding: '11px 14px', color: '#64748b', whiteSpace: 'nowrap' }}>{sentDate}</td>
+                          <td style={{ padding: '11px 14px' }}>
+                            {replied ? (
+                              <span style={{ display: 'inline-block', padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', whiteSpace: 'nowrap' }}>
+                                {status}
+                              </span>
+                            ) : (
+                              <span style={{ display: 'inline-block', padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: '#f8fafc', color: '#94a3b8', border: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>
+                                Awaiting reply
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ padding: '11px 14px' }} onClick={(e) => e.stopPropagation()}>
+                            <button
+                              onClick={() => handleHideOutreach(oe.id)}
+                              disabled={hidingId === oe.id}
+                              title="Not a recruiting email — hide from this list"
+                              style={{
+                                background: 'none', border: 'none', cursor: hidingId === oe.id ? 'default' : 'pointer',
+                                color: '#cbd5e1', padding: '2px 4px', borderRadius: 4, lineHeight: 1,
+                                fontSize: 11, fontWeight: 500,
+                              }}
+                              onMouseEnter={(e) => { if (hidingId !== oe.id) (e.currentTarget as HTMLElement).style.color = '#94a3b8' }}
+                              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = '#cbd5e1' }}
+                            >
+                              {hidingId === oe.id ? '…' : 'Hide'}
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {selectedOutreach && (
+            <OutreachDetailPanel
+              email={selectedOutreach}
+              replyEmail={replyEmail}
+              loadingReply={loadingReply}
+              onClose={() => setSelectedOutreach(null)}
+            />
+          )}
+        </div>
+      )}
+
+      {/* ── CONTACTS TAB ──────────────────────────────────────────────────────── */}
+      {activeTab === 'contacts' && (
+      <div>
 
       {/* Search */}
       <div style={{ position: 'relative', maxWidth: 280, marginBottom: 16 }}>
@@ -825,6 +1442,11 @@ export default function ContactsPage() {
         </div>
       </div>
 
+      </div>
+      )}
+
+      {/* Modals — rendered outside both tabs */}
+
       {/* Add / Edit Modal */}
       {showModal && (
         <Modal title={editing ? 'Edit Contact' : 'Add Contact'} onClose={closeModal} wide>
@@ -866,6 +1488,14 @@ export default function ContactsPage() {
         <UpcomingChatsModal
           contacts={contacts}
           onClose={() => setShowUpcomingChats(false)}
+        />
+      )}
+
+      {/* Push to Calendar Modal */}
+      {pushContact && (
+        <PushToCalendarModal
+          contact={pushContact}
+          onClose={() => setPushContact(null)}
         />
       )}
     </div>
